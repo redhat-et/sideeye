@@ -9,7 +9,9 @@ and native installation path.
 The workspace currently contains:
 
 - `sideeye-core` — `ReviewPacket`, `Verdict`, evidence/artifact types, and
-  validation.
+  validation and packet redaction.
+- `sideeye-providers` — the provider-neutral `JudgeProvider` trait and a
+  deterministic fake provider for hermetic tests.
 - `sideeye-cli` — experimental `sideeye-rs doctor` and packet validation.
 
 Run it with:
@@ -37,9 +39,8 @@ with existing Python verdicts and should be supplied by new providers.
 
 1. Add golden fixtures from real Python `SessionTranscript` and judge output;
    round-trip them through Rust before freezing the contract.
-2. Add a fake judge provider and contract tests, including route guards,
-   redaction, cost limits, raw-verdict preservation, and rubric/packet
-   provenance.
+2. Extend the fake provider contract tests with cost limits, raw-verdict
+   preservation, and rubric/packet provenance.
 3. Spike OpenCode capabilities: active session identity, complete history/tool
    results, changed-file evidence, and output that reaches the user without
    model paraphrase. Record the result before choosing plugin APIs.
