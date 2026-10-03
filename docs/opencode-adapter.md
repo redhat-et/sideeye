@@ -69,6 +69,7 @@ The stdin bridge wrapper is:
 ```json
 {
   "repo": "/absolute/path/to/repository",
+  "diff_base": "merge-base-or-session-start-commit",
   "touched_files": [{"path": "src/parser.rs", "count": 1}],
   "data": {"info": {}, "messages": []}
 }
@@ -78,6 +79,11 @@ The stdin bridge wrapper is:
 multiple repositories. The plugin must pass `--yes` for non-interactive stdin
 invocation; otherwise Side-Eye prompts on `/dev/tty`-equivalent interactive
 input and aborts safely at EOF.
+
+The first native plugin implementation lives under `integrations/opencode/` and
+provides both the server `sideeye-review` command and the TUI `/sideeye` slash
+command. It is not automatically installed by this PR; setup will own
+installation and isolated-config rollout after plugin review.
 
 ## Acceptance tests before dogfooding
 

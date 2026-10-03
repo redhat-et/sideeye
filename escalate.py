@@ -270,9 +270,13 @@ def main():
     ap.add_argument("--model", default=ESCALATION_MODEL)
     ap.add_argument("--rubric", default=str(DEFAULT_RUBRIC))
     ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument("--json", action="store_true",
+                    help="emit the persisted structured verdict as the final stdout line")
     ap.add_argument("--repo", default=None,
                     help="git repo root for the code diff (default: cwd). The "
                          "session's touched files are diffed against HEAD here.")
+    ap.add_argument("--diff-base", default=None,
+                    help="git diff base for tracked files (default: HEAD; native plugins may provide a session/branch base)")
     ap.add_argument("--no-code", action="store_true",
                     help="judge narrative-only (the old blind mode). For "
                          "blind-vs-sighted comparison; the verdict is stamped "
@@ -314,6 +318,9 @@ def main():
             wrapper_repo = export.get("repo") if isinstance(export, dict) else None
             if args.repo is None and isinstance(wrapper_repo, str) and wrapper_repo.strip():
                 args.repo = wrapper_repo
+            wrapper_diff_base = export.get("diff_base") if isinstance(export, dict) else None
+            if args.diff_base is None and isinstance(wrapper_diff_base, str) and wrapper_diff_base.strip():
+                args.diff_base = wrapper_diff_base
             transcript = parse_export(export, touched_files=extra)
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             fail(f"invalid OpenCode export: {exc}")
@@ -416,7 +423,7 @@ def main():
     # Build the diff entries ONCE (git is the slow part); make_diff then re-renders
     # them cheaply at any budget for the overflow search — no re-shelling to git.
     diff_entries = ([] if args.no_code or not touched
-                    else build_diff_entries(touched, repo_root))
+                    else build_diff_entries(touched, repo_root, diff_base=args.diff_base or "HEAD"))
 
     def make_diff(budget_chars=None):
         artifact = render_diff_artifact(diff_entries, budget_chars) or None
@@ -537,8 +544,11 @@ def main():
 
     # Interactive: show the review prominently — the human asked to see it.
     # Colors render only on a real TTY; piped captures stay plain text.
-    from sideeye.judge import style
-    print(style.render_verdict(record, str(out_path)))
+    if args.json:
+        print(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
+    else:
+        from sideeye.judge import style
+        print(style.render_verdict(record, str(out_path)))
 
 
 if __name__ == "__main__":

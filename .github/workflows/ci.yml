@@ -29,3 +29,18 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e . pytest
       - run: pytest -q
+
+  opencode-plugin:
+    name: OpenCode plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: integrations/opencode/package-lock.json
+      - run: npm ci
+        working-directory: integrations/opencode
+      - run: npm run typecheck
+        working-directory: integrations/opencode
