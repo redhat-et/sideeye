@@ -44,9 +44,9 @@ If it prints a path, skip to "Run it". If it prints nothing, install it once
 (~30s; the first available tool wins):
 
 ```
-uv tool install git+https://github.com/yossiovadia/sideeye || \
-  pipx install git+https://github.com/yossiovadia/sideeye || \
-  python3 -m pip install --user git+https://github.com/yossiovadia/sideeye
+uv tool install git+https://github.com/redhat-et/sideeye || \
+  pipx install git+https://github.com/redhat-et/sideeye || \
+  python3 -m pip install --user git+https://github.com/redhat-et/sideeye
 ```
 
 Two things can go wrong:

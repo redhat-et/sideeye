@@ -10,7 +10,7 @@ the strong judge for an independent second opinion. The scoreboard answers
 ## Install (Claude Code)
 
 ```
-/plugin marketplace add yossiovadia/sideeye
+/plugin marketplace add redhat-et/sideeye
 /plugin install sideeye@sideeye
 ```
 
@@ -22,7 +22,7 @@ If you also want the CLI on PATH outside Claude Code (or your machine has no
 uv/pipx and you'd rather install once by hand):
 
 ```bash
-uv tool install git+https://github.com/yossiovadia/sideeye   # or pipx / pip install
+uv tool install git+https://github.com/redhat-et/sideeye   # or pipx / pip install
 pip install -e .                                             # development checkout
 ```
 
