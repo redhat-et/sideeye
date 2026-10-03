@@ -8,6 +8,9 @@ transcript came from.
 """
 from __future__ import annotations
 
+import copy
+import re
+
 ROLES = ("user", "assistant", "tool", "system")
 
 
@@ -16,7 +19,7 @@ class TranscriptError(ValueError):
 
 
 def make_transcript(*, session_id, source, turns, model=None, created_at=None,
-                    generation_usage=None, touched_files=None):
+                    generation_usage=None, touched_files=None, generator_models=None):
     """Build + validate a SessionTranscript.
 
     - session_id: stable id for the session (grouping key).
@@ -29,6 +32,9 @@ def make_transcript(*, session_id, source, turns, model=None, created_at=None,
     - touched_files: list of {path, count} — files the session edited, for the
       code-review artifact (diff). None/empty = no code artifact (narrative
       only); the judge falls back to transcript-review honestly.
+    - generator_models: distinct model ids observed in per-turn metadata.
+      Optional during migration; OpenCode supplies this to prevent self-grading
+      when a session switched models.
     """
     t = {
         "session_id": session_id,
@@ -39,6 +45,8 @@ def make_transcript(*, session_id, source, turns, model=None, created_at=None,
         "generation_usage": generation_usage,
         "touched_files": touched_files or [],
     }
+    if generator_models is not None:
+        t["generator_models"] = list(generator_models)
     return validate_transcript(t)
 
 
@@ -58,6 +66,8 @@ def validate_transcript(t):
             raise TranscriptError(f"turns[{i}].role must be one of {ROLES}, got {turn.get('role')!r}")
         if not isinstance(turn.get("text"), str):
             raise TranscriptError(f"turns[{i}].text must be a string")
+        if "model" in turn and turn["model"] is not None and not isinstance(turn["model"], str):
+            raise TranscriptError(f"turns[{i}].model must be a string or null")
     gu = t.get("generation_usage")
     if gu is not None and not isinstance(gu, dict):
         raise TranscriptError("generation_usage must be an object or null")
@@ -68,7 +78,39 @@ def validate_transcript(t):
         for i, f in enumerate(tf):
             if not isinstance(f, dict) or not f.get("path"):
                 raise TranscriptError(f"touched_files[{i}] must be an object with a 'path'")
+    gm = t.get("generator_models")
+    if gm is not None:
+        if not isinstance(gm, list) or any(not isinstance(model, str) or not model.strip() for model in gm):
+            raise TranscriptError("generator_models must be a list of non-empty strings")
     return t
+
+
+# Keep this redactor in the Python bridge as well as the Rust core: OpenCode
+# currently feeds the Python judge directly. It is deliberately not a PII
+# anonymizer; it removes credential-shaped values while preserving review text.
+_SECRET_ASSIGNMENT = re.compile(
+    r'''(?i)((?:[A-Z][A-Z0-9]*_)*(?:api[_-]?key|auth(?:entication)?[_-]?token|access[_-]?token|client[_-]?secret|password|secret)\b\s*[:=]\s*["']?)[^"'\s,;}]+'''
+)
+_SECRET_HEADER = re.compile(r'''(?i)\b(authorization\s*:\s*bearer\s+|x-api-key\s*:\s*)[^\s,}]+''')
+_SECRET_QUERY = re.compile(r'''(?i)([?&](?:api[_-]?key|token|secret|password)=)[^&#\s]+''')
+_KNOWN_TOKEN = re.compile(r'''\b(?:sk-ant-[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]+|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+)\b''')
+
+
+def redact_text(text):
+    if not isinstance(text, str):
+        return text
+    text = _SECRET_ASSIGNMENT.sub(r"\1[REDACTED]", text)
+    text = _SECRET_HEADER.sub(r"\1[REDACTED]", text)
+    text = _SECRET_QUERY.sub(r"\1[REDACTED]", text)
+    return _KNOWN_TOKEN.sub("[REDACTED]", text)
+
+
+def redact_transcript(t):
+    """Return a deep-copied transcript with credential-shaped text redacted."""
+    redacted = copy.deepcopy(t)
+    for turn in redacted.get("turns", []):
+        turn["text"] = redact_text(turn.get("text"))
+    return redacted
 
 
 def first_user_ask(t) -> str:

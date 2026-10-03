@@ -18,11 +18,16 @@ def test_opencode_export_maps_visible_turns_and_tool_results():
         "input_tokens": 100,
         "output_tokens": 30,
         "total_tokens": 130,
+        "cache_read_tokens": 900,
+        "cache_write_tokens": 10,
     }
-    assert [turn["role"] for turn in transcript["turns"]] == ["user", "assistant", "tool"]
+    assert transcript["generator_models"] == ["openai/gpt-test"]
+    assert [turn["role"] for turn in transcript["turns"]] == ["user", "assistant", "tool", "tool"]
     assert "hidden reasoning" not in str(transcript)
     assert "Side-Eye verdict" not in str(transcript)
-    assert "parser.rs contents" in transcript["turns"][-1]["text"]
+    assert "parser.rs contents" in transcript["turns"][2]["text"]
+    assert '"path": "parser.rs"' in transcript["turns"][2]["text"]
+    assert "test command failed" in transcript["turns"][3]["text"]
     assert transcript["touched_files"] == [{"path": "parser.rs"}]
 
 

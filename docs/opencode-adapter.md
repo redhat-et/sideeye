@@ -16,14 +16,16 @@ Against OpenCode `v2.0.16`:
   user messages, assistant text, tool parts/results, and timestamps;
 - the V2 TUI plugin API can register slash commands, dialogs, toasts, routes,
   and session panels;
-- VCS APIs expose repository status and diff through the resolved project
-  location.
+- VCS APIs are present for repository status and diff, but still need to be
+  exercised against the resolved repository root by the native plugin.
 
-The local probe found an important boundary: this development session's edits
-were made by external shell tools, so OpenCode's session diff was empty even
-though the repository had changes. A production adapter must combine session
-history with repository VCS state; it must not treat session diff alone as the
-complete code artifact.
+The local probe found an important boundary: the session location was a parent
+workspace directory with no `.git`; the actual repository was nested below it.
+The session diff was therefore empty. External shell edits also would not be
+represented as OpenCode session turns. A production adapter must resolve the
+actual repository root (or receive it explicitly), then combine session history
+with repository VCS state; it must not treat session diff alone as the complete
+code artifact.
 
 ## Normalization contract
 
@@ -35,10 +37,13 @@ Python `SessionTranscript` contract:
 - completed tool text becomes `tool` turns;
 - hidden reasoning, system messages, compaction summaries, and synthetic
   messages are excluded;
-- provider/model and aggregate token usage are preserved;
+- provider/model and aggregate token usage are preserved, including cache read
+  and write counts and per-turn generator model ids;
 - touched files are supplied separately from VCS/session-diff capture.
 
-The adapter has fixture coverage but does not yet call a real judge.
+The adapter has fixture coverage but does not yet call a real judge. The export
+is sanitized by OpenCode and then redacted again by Side-Eye before judging;
+`sanitize=true` is not treated as a substitute for Side-Eye redaction.
 
 ## Native command design
 
@@ -47,8 +52,10 @@ The next native plugin should register `/sideeye review` and:
 1. obtain the active `sessionID`;
 2. export/sanitize the session and resolve the repository root;
 3. collect the working-tree diff and test/tool evidence;
-4. construct a `ReviewPacket` and call `ReviewPacket::redacted()`;
-5. invoke the existing Python review engine through its stdin bridge, with the
+4. construct a `ReviewPacket` and call `ReviewPacket::redacted()` (the current
+   Python bridge applies the equivalent redactor before rendering);
+5. reject self-grading if the selected judge model appears in any generator
+   turn, then invoke the existing Python review engine through its stdin bridge, with the
    normal route guard, cost ceiling, and rubric;
 6. display the structured verdict in a TUI panel or synthetic message without
    asking the current model to paraphrase it.
@@ -57,13 +64,32 @@ The plugin must remove or exclude its own review command and result from the
 packet. The current model is the generator, never the judge. Dogfood results
 remain separate from random benchmark samples.
 
+The stdin bridge wrapper is:
+
+```json
+{
+  "repo": "/absolute/path/to/repository",
+  "touched_files": [{"path": "src/parser.rs", "count": 1}],
+  "data": {"info": {}, "messages": []}
+}
+```
+
+`repo` is required when the OpenCode location is a workspace parent or contains
+multiple repositories. The plugin must pass `--yes` for non-interactive stdin
+invocation; otherwise Side-Eye prompts on `/dev/tty`-equivalent interactive
+input and aborts safely at EOF.
+
 ## Acceptance tests before dogfooding
 
 - active session ID is deterministic;
 - export captures user intent, visible assistant claims, tool results, and
-  model/token metadata;
+  model/token metadata, including per-turn model and cache usage;
 - external edits and OpenCode edits both appear in the code artifact;
+- a nested repository is resolved explicitly rather than inferred from the
+  workspace parent;
 - secrets are redacted and no raw credentials enter the judge request;
+- a session containing turns from the judge model is rejected before spend;
+- tool inputs and failed-tool markers remain visible as evidence;
 - the plugin works with no judge credential by failing before network spend;
 - judge output is rendered verbatim and is not sent back through the model;
 - review invocation/result are absent from the reviewed packet;

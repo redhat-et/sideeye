@@ -48,7 +48,14 @@ from sideeye.judge.judge import (  # noqa: E402
     resolve_model,
     rubric_version,
 )
-from sideeye.judge.transcript import first_user_ask, render, render_budgeted, strip_escalation  # noqa: E402
+from sideeye.judge.transcript import (  # noqa: E402
+    first_user_ask,
+    redact_text,
+    redact_transcript,
+    render,
+    render_budgeted,
+    strip_escalation,
+)
 from sideeye.record import (  # noqa: E402
     ADAPTER_VERSION_BLIND,
     ADAPTER_VERSION_BLIND_TIERED,
@@ -93,6 +100,51 @@ def fail(msg):
     from sideeye.judge import style
     print(style.render_error(msg), file=sys.stderr)
     sys.exit(1)
+
+
+def _same_model_family(left, right):
+    """Match exact model ids and version-suffixed ids across providers."""
+    if not left or not right:
+        return False
+    left = str(left).rsplit("/", 1)[-1].lower()
+    right = str(right).rsplit("/", 1)[-1].lower()
+    return left == right or left.startswith(right + "-") or right.startswith(left + "-")
+
+
+def _generator_model_conflict(transcript, judge_model):
+    models = set(transcript.get("generator_models") or [])
+    models.update(turn.get("model") for turn in transcript.get("turns", []) if turn.get("model"))
+    return sorted(model for model in models if _same_model_family(model, judge_model))
+
+
+def _git_root(path):
+    path = pathlib.Path(path).expanduser().resolve()
+    if path.is_file():
+        path = path.parent
+    for candidate in (path, *path.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _resolve_repo_root(repo_hint, touched):
+    """Find one git root, including when a workspace contains nested repos."""
+    base = pathlib.Path(repo_hint or pathlib.Path.cwd()).expanduser().resolve()
+    direct = _git_root(base)
+    if direct:
+        return direct
+    roots = set()
+    for entry in touched or []:
+        raw_path = entry.get("path") if isinstance(entry, dict) else None
+        if not raw_path:
+            continue
+        candidate = pathlib.Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = base / candidate
+        root = _git_root(candidate)
+        if root:
+            roots.add(root)
+    return roots.pop() if len(roots) == 1 else base
 
 
 def _fit_packet(transcript, asked, make_diff, rubric_text, *, base_url, api_key, model,
@@ -259,6 +311,9 @@ def main():
             else:
                 export = json.loads(pathlib.Path(args.opencode_export).read_text(encoding="utf-8"))
             extra = export.get("touched_files") if isinstance(export, dict) else None
+            wrapper_repo = export.get("repo") if isinstance(export, dict) else None
+            if args.repo is None and isinstance(wrapper_repo, str) and wrapper_repo.strip():
+                args.repo = wrapper_repo
             transcript = parse_export(export, touched_files=extra)
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             fail(f"invalid OpenCode export: {exc}")
@@ -319,6 +374,14 @@ def main():
               + (f" ({esc_dropped} turn(s))" if esc_dropped else " (annotated in-packet)")
               + " — this review grades the work, not the review request itself")
 
+    conflicts = _generator_model_conflict(transcript, args.model)
+    if conflicts:
+        fail(
+            f"judge model {args.model!r} also generated turns in this session "
+            f"({', '.join(conflicts)}); choose a different judge to avoid self-grading"
+        )
+    transcript = redact_transcript(transcript)
+
     rubric_text = load_rubric(args.rubric)
     rv = rubric_version(args.rubric)
 
@@ -344,14 +407,20 @@ def main():
     # unresolvable/absent files fall back to narrative-only (blind), honestly.
     adapter_version = ADAPTER_VERSION_SIGHTED
     touched = transcript.get("touched_files") or []
-    repo_root = pathlib.Path(args.repo) if args.repo else pathlib.Path.cwd()
+    repo_root = _resolve_repo_root(args.repo, touched)
+    if args.opencode_export and touched and not _git_root(repo_root):
+        fail(
+            "OpenCode export includes touched files but no git repository was "
+            "resolved; pass a repository root in the export wrapper or --repo"
+        )
     # Build the diff entries ONCE (git is the slow part); make_diff then re-renders
     # them cheaply at any budget for the overflow search — no re-shelling to git.
     diff_entries = ([] if args.no_code or not touched
                     else build_diff_entries(touched, repo_root))
 
     def make_diff(budget_chars=None):
-        return render_diff_artifact(diff_entries, budget_chars) or None
+        artifact = render_diff_artifact(diff_entries, budget_chars) or None
+        return redact_text(artifact) if artifact else None
 
     if args.no_code:
         print("Code    : --no-code (blind mode, v0) — narrative only")
@@ -421,7 +490,7 @@ def main():
     if not args.yes:
         try:
             input("\nEscalate this session to the judge? [Enter to proceed, Ctrl-C to abort] ")
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, EOFError):
             print("\naborted before judge call (no spend).")
             return
 
