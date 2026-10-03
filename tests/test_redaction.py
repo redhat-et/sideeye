@@ -18,4 +18,5 @@ def test_redact_transcript_does_not_mutate_source():
     original = {"turns": [{"role": "user", "text": "API_KEY=secret"}]}
     redacted = redact_transcript(original)
     assert original["turns"][0]["text"] == "API_KEY=secret"
-    assert redacted["turns"][0]["text"] == "API_KEY=[REDACTED]"
+    assert redacted["turns"][0]["text"] == "API_KEY=[REDACTED:credential]"
+    assert redacted["turns"][-1]["role"] == "system"

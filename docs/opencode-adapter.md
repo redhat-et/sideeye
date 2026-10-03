@@ -8,7 +8,7 @@ not use MCP.
 Against OpenCode `v2.0.16`:
 
 - server plugins can register commands; command execution receives the active
-  `sessionID`;
+  `sessionID` and can read the projected session context;
 - the session API exposes projected context and session diff operations;
 - the experimental session export endpoint returns complete projected history
   and accepts `sanitize=true`;
@@ -82,8 +82,25 @@ input and aborts safely at EOF.
 
 The first native plugin implementation lives under `integrations/opencode/` and
 provides both the server `sideeye-review` command and the TUI `/sideeye` slash
-command. It is not automatically installed by this PR; setup will own
+command. The server plugin uses the supported `ctx.session.context` API and
+projects it into the adapter envelope; the generated client export endpoint is
+available to external/TUI clients but is not assumed to exist on server-plugin
+context. It is not automatically installed by this PR; setup will own
 installation and isolated-config rollout after plugin review.
+
+The package is pinned to the host API version used by this spike (`2.0.16`).
+`npm audit` currently reports 12 high-severity advisories in transitive
+OpenCode/npm-registry dependencies with no available fix; CI typechecks and
+tests the plugin but does not claim this dependency tree is release-ready. A
+release policy decision or upstream remediation is required before publishing
+the installer.
+
+The first invocation is estimate-only: it performs the free route/token/cost
+check and inserts the estimate without judging. The user explicitly invokes
+`/sideeye --confirm` before the plugin passes `--yes` to the review bridge.
+The structured verdict is inserted verbatim as a synthetic message; it may be
+visible to subsequent model context, but it is never routed through the model
+to generate the displayed result.
 
 ## Acceptance tests before dogfooding
 

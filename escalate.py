@@ -28,6 +28,7 @@ import argparse
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import time
 
@@ -106,8 +107,15 @@ def _same_model_family(left, right):
     """Match exact model ids and version-suffixed ids across providers."""
     if not left or not right:
         return False
+    aliases = {
+        "fable": "claude-fable-5",
+        "opus": "claude-opus-4-8",
+        "sonnet": "claude-sonnet-5",
+    }
     left = str(left).rsplit("/", 1)[-1].lower()
     right = str(right).rsplit("/", 1)[-1].lower()
+    left = aliases.get(left, left)
+    right = aliases.get(right, right)
     return left == right or left.startswith(right + "-") or right.startswith(left + "-")
 
 
@@ -145,6 +153,23 @@ def _resolve_repo_root(repo_hint, touched):
         if root:
             roots.add(root)
     return roots.pop() if len(roots) == 1 else base
+
+
+def _validate_diff_base(repo_root, diff_base):
+    if diff_base == "HEAD":
+        return diff_base
+    if not diff_base or diff_base.startswith("-"):
+        fail(f"invalid git diff base: {diff_base!r}")
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--verify", f"{diff_base}^{{commit}}"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        fail(f"could not validate git diff base {diff_base!r}: {exc}")
+    if result.returncode != 0:
+        fail(f"git diff base does not resolve to a commit: {diff_base!r}")
+    return diff_base
 
 
 def _fit_packet(transcript, asked, make_diff, rubric_text, *, base_url, api_key, model,
@@ -272,6 +297,8 @@ def main():
     ap.add_argument("--out", default=str(DEFAULT_OUT))
     ap.add_argument("--json", action="store_true",
                     help="emit the persisted structured verdict as the final stdout line")
+    ap.add_argument("--estimate-only", action="store_true",
+                    help="build and cost-check the packet without making a judge call")
     ap.add_argument("--repo", default=None,
                     help="git repo root for the code diff (default: cwd). The "
                          "session's touched files are diffed against HEAD here.")
@@ -420,10 +447,11 @@ def main():
             "OpenCode export includes touched files but no git repository was "
             "resolved; pass a repository root in the export wrapper or --repo"
         )
+    diff_base = _validate_diff_base(repo_root, args.diff_base or "HEAD") if touched else "HEAD"
     # Build the diff entries ONCE (git is the slow part); make_diff then re-renders
     # them cheaply at any budget for the overflow search — no re-shelling to git.
     diff_entries = ([] if args.no_code or not touched
-                    else build_diff_entries(touched, repo_root, diff_base=args.diff_base or "HEAD"))
+                    else build_diff_entries(touched, repo_root, diff_base=diff_base))
 
     def make_diff(budget_chars=None):
         artifact = render_diff_artifact(diff_entries, budget_chars) or None
@@ -493,6 +521,23 @@ def main():
     if est_cost > args.max_cost:
         fail(f"estimated ${est_cost:.4f} exceeds --max-cost ${args.max_cost:.2f} "
              f"({input_tokens:,} input tokens). Re-run with --max-cost {est_cost + 1:.0f} to proceed.")
+
+    if args.estimate_only:
+        estimate = {
+            "type": "estimate",
+            "session_id": transcript["session_id"],
+            "input_tokens": input_tokens,
+            "estimated_cost_usd": est_cost,
+            "exact": exact,
+            "reason": reason,
+            "adapter_version": adapter_version,
+            "touched_files": len(touched),
+        }
+        if args.json:
+            print(json.dumps(estimate, ensure_ascii=False, separators=(",", ":")))
+        else:
+            print(f"estimate only: ~${est_cost:.4f} ({input_tokens:,} input tokens)")
+        return
 
     if not args.yes:
         try:

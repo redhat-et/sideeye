@@ -67,6 +67,23 @@ def test_opencode_stdin_bridge_is_offline_testable_and_redacts(monkeypatch, tmp_
     assert record["generation_cache_read_tokens"] == 900
 
 
+def test_estimate_only_is_structured_and_never_calls_judge(monkeypatch, tmp_path, capsys):
+    export = json.loads(FIXTURE.read_text())
+    monkeypatch.setattr(E, "require_judge_route", lambda base=None: ("https://judge.example", "key", "config"))
+    monkeypatch.setattr(E, "_fit_packet", lambda *args, **kwargs: ("PRODUCED", 50, 0.25, True, "", None))
+    monkeypatch.setattr(E, "judge", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("judge called")))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(export)))
+    monkeypatch.setattr(sys, "argv", [
+        "sideeye review", "--opencode-export", "-", "--estimate-only", "--json",
+    ])
+
+    E.main()
+
+    estimate = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert estimate["type"] == "estimate"
+    assert estimate["estimated_cost_usd"] == 0.25
+
+
 def test_judge_model_seen_in_generator_turns_is_a_conflict():
     transcript = {"generator_models": ["anthropic/claude-fable-5-1"], "turns": []}
     assert E._generator_model_conflict(transcript, "claude-fable-5") == [

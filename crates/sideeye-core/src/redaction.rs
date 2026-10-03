@@ -8,10 +8,12 @@ use crate::ReviewPacket;
 /// boundary. The patterns are intentionally conservative about what they
 /// replace and are tested against the formats Side-Eye itself uses.
 pub fn redact_text(input: &str) -> String {
-    let assignment = assignment_regex().replace_all(input, "$1[REDACTED]");
-    let header = header_regex().replace_all(&assignment, "$1[REDACTED]");
-    let query = query_regex().replace_all(&header, "$1[REDACTED]");
-    token_regex().replace_all(&query, "[REDACTED]").into_owned()
+    let assignment = assignment_regex().replace_all(input, "$1[REDACTED:credential]");
+    let header = header_regex().replace_all(&assignment, "$1[REDACTED:credential]");
+    let query = query_regex().replace_all(&header, "$1[REDACTED:credential]");
+    token_regex()
+        .replace_all(&query, "[REDACTED:credential]")
+        .into_owned()
 }
 
 pub fn redact_packet(packet: &ReviewPacket) -> ReviewPacket {
@@ -74,7 +76,7 @@ mod tests {
         assert!(!output.contains("key-secret"));
         assert!(!output.contains("url-secret"));
         assert!(output.contains("hello"));
-        assert_eq!(output.matches("[REDACTED]").count(), 4);
+        assert_eq!(output.matches("[REDACTED:credential]").count(), 4);
     }
 
     #[test]
@@ -101,8 +103,11 @@ mod tests {
         };
         let redacted = packet.redacted();
         assert_eq!(redacted.packet_id, packet.packet_id);
-        assert_eq!(redacted.task, "Use API_KEY=[REDACTED]");
-        assert_eq!(redacted.artifacts[0].content, "API_KEY=[REDACTED]");
+        assert_eq!(redacted.task, "Use API_KEY=[REDACTED:credential]");
+        assert_eq!(
+            redacted.artifacts[0].content,
+            "API_KEY=[REDACTED:credential]"
+        );
         redacted.validate().unwrap();
     }
 }

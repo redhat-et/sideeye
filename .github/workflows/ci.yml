@@ -44,3 +44,5 @@ jobs:
         working-directory: integrations/opencode
       - run: npm run typecheck
         working-directory: integrations/opencode
+      - run: npm test
+        working-directory: integrations/opencode

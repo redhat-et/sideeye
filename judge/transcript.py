@@ -99,17 +99,25 @@ _KNOWN_TOKEN = re.compile(r'''\b(?:sk-ant-[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]+|ghp_[
 def redact_text(text):
     if not isinstance(text, str):
         return text
-    text = _SECRET_ASSIGNMENT.sub(r"\1[REDACTED]", text)
-    text = _SECRET_HEADER.sub(r"\1[REDACTED]", text)
-    text = _SECRET_QUERY.sub(r"\1[REDACTED]", text)
-    return _KNOWN_TOKEN.sub("[REDACTED]", text)
+    text = _SECRET_ASSIGNMENT.sub(r"\1[REDACTED:credential]", text)
+    text = _SECRET_HEADER.sub(r"\1[REDACTED:credential]", text)
+    text = _SECRET_QUERY.sub(r"\1[REDACTED:credential]", text)
+    return _KNOWN_TOKEN.sub("[REDACTED:credential]", text)
 
 
 def redact_transcript(t):
     """Return a deep-copied transcript with credential-shaped text redacted."""
     redacted = copy.deepcopy(t)
+    changed = False
     for turn in redacted.get("turns", []):
-        turn["text"] = redact_text(turn.get("text"))
+        original = turn.get("text")
+        turn["text"] = redact_text(original)
+        changed = changed or turn["text"] != original
+    if changed:
+        redacted["turns"].append({
+            "role": "system",
+            "text": "[Side-Eye redaction: credential-shaped values were replaced before judging.]",
+        })
     return redacted
 
 
