@@ -7,6 +7,10 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod redaction;
+
+pub use redaction::{redact_packet, redact_text};
+
 pub const REVIEW_PACKET_SCHEMA: &str = "sideeye.review_packet.v1";
 pub const VERDICT_SCHEMA: &str = "sideeye.verdict.v1";
 
@@ -83,6 +87,13 @@ impl ReviewPacket {
             }
         }
         Ok(())
+    }
+
+    /// Return a packet safe to pass to a remote judge by redacting credentials
+    /// from human/tool text and artifact content. This is deliberately
+    /// loss-preserving for ordinary prose and code; it is not a PII anonymizer.
+    pub fn redacted(&self) -> Self {
+        redact_packet(self)
     }
 }
 

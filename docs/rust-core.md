@@ -45,7 +45,8 @@ with existing Python verdicts and should be supplied by new providers.
    model paraphrase. Record the result before choosing plugin APIs.
 4. Build an OpenCode adapter v0 that emits a packet to the existing Python
    engine. This enables dogfooding before the Rust provider adapter exists.
-   Redaction is mandatory before any packet can leave the local process.
+   Call `ReviewPacket::redacted()` immediately before any packet leaves the
+   local process; redaction is mandatory, not an adapter-specific option.
 5. Add the Rust Anthropic adapter with parity against the Python engine, then
    OpenAI-compatible and local providers.
 6. Add Codex and Claude Code native integrations through the same packet API,
