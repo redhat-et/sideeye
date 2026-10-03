@@ -10,6 +10,10 @@ use thiserror::Error;
 pub const REVIEW_PACKET_SCHEMA: &str = "sideeye.review_packet.v1";
 pub const VERDICT_SCHEMA: &str = "sideeye.verdict.v1";
 
+fn default_verdict_schema() -> String {
+    VERDICT_SCHEMA.to_owned()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -72,11 +76,6 @@ impl ReviewPacket {
         if self.turns.is_empty() {
             return Err(ContractError::Empty("turns".to_owned()));
         }
-        for (index, turn) in self.turns.iter().enumerate() {
-            if turn.text.trim().is_empty() {
-                return Err(ContractError::Empty(format!("turns[{index}].text")));
-            }
-        }
         for (index, artifact) in self.artifacts.iter().enumerate() {
             require_nonempty(&format!("artifacts[{index}].kind"), &artifact.kind)?;
             if artifact.content.is_empty() {
@@ -107,13 +106,33 @@ pub enum Severity {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VerdictIssue {
     pub description: String,
-    pub severity: Severity,
+    pub severity: IssueSeverity,
+    /// Optional for compatibility with the Python judge's current verdict
+    /// shape. New providers should populate evidence when available.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum IssueSeverity {
+    Minor,
+    Major,
+    Critical,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Verdict {
+    #[serde(default = "default_verdict_schema")]
     pub schema_version: String,
+    /// Optional on the raw judge result; set when the engine persists the
+    /// verdict alongside the packet that produced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_id: Option<String>,
+    /// Optional on the raw judge result; required for comparable persisted
+    /// records and scoreboard aggregation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rubric_version: Option<String>,
     pub answered_what_was_asked: bool,
     pub correctness: Correctness,
     pub claims_supported: bool,
@@ -121,10 +140,18 @@ pub struct Verdict {
     pub issues: Vec<VerdictIssue>,
     pub overall_severity: Severity,
     pub summary: String,
-    pub judge_provider: String,
-    pub judge_model: String,
+    /// The following envelope fields are absent from the Python judge's raw
+    /// tool result and are added by its runner. Keep them optional so the Rust
+    /// contract can consume both shapes during the migration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub judge_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub judge_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<f64>,
 }
 
@@ -140,8 +167,18 @@ impl Verdict {
             return Err(ContractError::Score(self.score));
         }
         require_nonempty("summary", &self.summary)?;
-        require_nonempty("judge_provider", &self.judge_provider)?;
-        require_nonempty("judge_model", &self.judge_model)?;
+        if let Some(provider) = &self.judge_provider {
+            require_nonempty("judge_provider", provider)?;
+        }
+        if let Some(model) = &self.judge_model {
+            require_nonempty("judge_model", model)?;
+        }
+        if let Some(packet_id) = &self.packet_id {
+            require_nonempty("packet_id", packet_id)?;
+        }
+        if let Some(rubric_version) = &self.rubric_version {
+            require_nonempty("rubric_version", rubric_version)?;
+        }
         for (index, issue) in self.issues.iter().enumerate() {
             require_nonempty(&format!("issues[{index}].description"), &issue.description)?;
             for evidence in &issue.evidence {
@@ -219,9 +256,18 @@ mod tests {
     }
 
     #[test]
+    fn packet_allows_empty_turn_text_like_python_transcripts() {
+        let mut packet = packet();
+        packet.turns[0].text.clear();
+        packet.validate().unwrap();
+    }
+
+    #[test]
     fn verdict_rejects_invalid_score() {
         let verdict = Verdict {
             schema_version: VERDICT_SCHEMA.to_owned(),
+            packet_id: None,
+            rubric_version: None,
             answered_what_was_asked: true,
             correctness: Correctness::Correct,
             claims_supported: true,
@@ -229,12 +275,62 @@ mod tests {
             issues: vec![],
             overall_severity: Severity::None,
             summary: "Looks good".to_owned(),
-            judge_provider: "fake".to_owned(),
-            judge_model: "fake-judge".to_owned(),
+            judge_provider: None,
+            judge_model: None,
             input_tokens: None,
             output_tokens: None,
             cost_usd: None,
         };
         assert_eq!(verdict.validate(), Err(ContractError::Score(0)));
+    }
+
+    #[test]
+    fn python_judge_core_verdict_is_compatible() {
+        let json = r#"
+        {
+          "answered_what_was_asked": true,
+          "correctness": "partially_correct",
+          "claims_supported": false,
+          "score": 3,
+          "issues": [{"description": "Missing evidence", "severity": "major"}],
+          "overall_severity": "major",
+          "summary": "Needs evidence."
+        }
+        "#;
+        let verdict: Verdict = serde_json::from_str(json).unwrap();
+        assert_eq!(verdict.schema_version, VERDICT_SCHEMA);
+        assert_eq!(verdict.issues[0].evidence, Vec::<String>::new());
+        verdict.validate().unwrap();
+    }
+
+    #[test]
+    fn enriched_verdict_keeps_packet_and_rubric_provenance() {
+        let mut verdict = Verdict {
+            schema_version: VERDICT_SCHEMA.to_owned(),
+            packet_id: Some("packet-1".to_owned()),
+            rubric_version: Some("rubric_session_v2".to_owned()),
+            answered_what_was_asked: true,
+            correctness: Correctness::Correct,
+            claims_supported: true,
+            score: 5,
+            issues: vec![VerdictIssue {
+                description: "No issue".to_owned(),
+                severity: IssueSeverity::Minor,
+                evidence: vec!["test output".to_owned()],
+            }],
+            overall_severity: Severity::None,
+            summary: "Looks good".to_owned(),
+            judge_provider: Some("fake".to_owned()),
+            judge_model: Some("fake-judge".to_owned()),
+            input_tokens: Some(10),
+            output_tokens: Some(4),
+            cost_usd: Some(0.01),
+        };
+        verdict.validate().unwrap();
+        let encoded = serde_json::to_string(&verdict).unwrap();
+        assert!(encoded.contains("packet_id"));
+        assert!(encoded.contains("rubric_version"));
+        verdict.packet_id = Some(" ".to_owned());
+        assert!(verdict.validate().is_err());
     }
 }
