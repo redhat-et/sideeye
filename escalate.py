@@ -34,6 +34,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from sideeye.adapters import latest_session, load_transcript, resolve_current_session  # noqa: E402
+from sideeye.adapters.opencode import parse_export  # noqa: E402
 from sideeye.config import RouteError, require_judge_route  # noqa: E402
 from sideeye.judge.code_artifact import build_diff_entries, render_diff_artifact  # noqa: E402
 from sideeye.judge.judge import (  # noqa: E402
@@ -193,6 +194,8 @@ def _fit_packet(transcript, asked, make_diff, rubric_text, *, base_url, api_key,
 def main():
     ap = argparse.ArgumentParser(description="Side-Eye on-demand escalation (human stream)")
     ap.add_argument("--rollout", default=None, help="session file (default: latest in scope)")
+    ap.add_argument("--opencode-export", default=None,
+                    help="OpenCode V2 session export JSON, or '-' for stdin; intended for the native plugin")
     ap.add_argument("--client", choices=("claude", "codex"), default="claude",
                     help="which client's latest session to escalate (default claude)")
     ap.add_argument("--project", default=None,
@@ -231,6 +234,9 @@ def main():
     args = ap.parse_args()
     args.model = resolve_model(args.model)   # accept fable/opus/sonnet aliases
 
+    if args.rollout and args.opencode_export:
+        fail("--rollout and --opencode-export are mutually exclusive")
+
     if args.tier == 2:
         fail("tier-2 (agentic: check out the code and RUN it) is not implemented "
              "in this POC. Tier 2 is a sandboxed judge-worker with tools, not a "
@@ -242,18 +248,38 @@ def main():
     except RouteError as e:
         fail(str(e))
 
+    # Native OpenCode passes a sanitized V2 export directly. This avoids a
+    # second terminal and avoids guessing where OpenCode stores its database.
+    # The plugin also passes touched_files in the wrapper so the normal sighted
+    # diff path remains shared with Claude Code and Codex.
+    if args.opencode_export:
+        try:
+            if args.opencode_export == "-":
+                export = json.load(sys.stdin)
+            else:
+                export = json.loads(pathlib.Path(args.opencode_export).read_text(encoding="utf-8"))
+            extra = export.get("touched_files") if isinstance(export, dict) else None
+            transcript = parse_export(export, touched_files=extra)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            fail(f"invalid OpenCode export: {exc}")
+        rollout = None
+        scope = None
+        session_label = "OpenCode export"
     # Session selection. Default scope = the current project (cwd), so escalate
     # reviews the session you're actually in — not the global-latest, which is a
     # coin flip across every live Claude session on the machine.
-    if args.rollout:
+    elif args.rollout:
         scope = None
         rollout = pathlib.Path(args.rollout)
+        session_label = str(rollout)
     elif args.all_projects:
         scope = "all"
         rollout = latest_session(args.client, scope="all")
+        session_label = str(rollout) if rollout else "no session"
     elif args.project:
         scope = args.project
         rollout = latest_session(args.client, scope=args.project)
+        session_label = str(rollout) if rollout else "no session"
     else:
         scope = "cwd"
         # Robust to a drifted shell cwd (e.g. a skill's Bash tool running from
@@ -267,16 +293,18 @@ def main():
         if env_id and rollout and rollout.stem != env_id:
             print(f"(harness session {env_id[:8]} not found on disk; judging the "
                   "most recently active session instead)")
-    if not rollout or not rollout.exists():
+        session_label = str(rollout) if rollout else "no session"
+    if not args.opencode_export and (not rollout or not rollout.exists()):
         if scope == "cwd":
             fail(f"no {args.client} session in this project "
                  f"({latest_session.__module__}.claude_project_dir). "
                  "Pass --all-projects to search everywhere, or run from the "
                  "session's working directory.")
         fail(f"no {args.client} session found")
-    transcript = load_transcript(rollout)
-    if transcript is None:
-        fail(f"no usable turns in {rollout}")
+    if not args.opencode_export:
+        transcript = load_transcript(rollout)
+        if transcript is None:
+            fail(f"no usable turns in {rollout}")
 
     # Exclude Side-Eye's own escalation machinery BEFORE anything else reads the
     # transcript. Without this the packet is self-referential by construction:
@@ -298,7 +326,7 @@ def main():
     # first user turn is the cheapest recognition signal: if it's not the session
     # you meant, Ctrl-C now, before the judge call.
     first_ask = first_user_ask(transcript).replace("\n", " ")[:120]
-    print(f"Session : {rollout}")
+    print(f"Session : {session_label}")
     print(f"           {transcript['session_id'][:24]}  ({len(transcript['turns'])} turns)")
     if first_ask:
         print(f"First ask: {first_ask}")

@@ -1,0 +1,23 @@
+{
+  "data": {
+    "info": {
+      "id": "ses_fixture_opencode",
+      "model": {"providerID": "openai", "id": "gpt-test", "variant": "fast"},
+      "time": {"created": 1735689600000},
+      "tokens": {"input": 100, "output": 25, "reasoning": 5}
+    },
+    "messages": [
+      {"type": "system", "id": "system-1", "text": "internal"},
+      {"type": "user", "id": "user-1", "text": "Fix the parser"},
+      {"type": "assistant", "id": "assistant-1", "content": [
+        {"type": "reasoning", "text": "hidden reasoning"},
+        {"type": "text", "text": "I will inspect the parser."},
+        {"type": "tool", "name": "read", "state": {
+          "status": "completed",
+          "content": [{"type": "text", "text": "parser.rs contents"}]
+        }}
+      ]},
+      {"type": "synthetic", "id": "synthetic-1", "text": "Side-Eye verdict"}
+    ]
+  }
+}
