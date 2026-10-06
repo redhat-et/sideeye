@@ -89,11 +89,10 @@ context. It is not automatically installed by this PR; setup will own
 installation and isolated-config rollout after plugin review.
 
 The package is pinned to the host API version used by this spike (`2.0.16`).
-`npm audit` currently reports 12 high-severity advisories in transitive
-OpenCode/npm-registry dependencies with no available fix; CI typechecks and
-tests the plugin but does not claim this dependency tree is release-ready. A
-release policy decision or upstream remediation is required before publishing
-the installer.
+`npm audit` currently reports one high-severity advisory in a transitive
+OpenCode/npm-registry dependency. CI typechecks and tests the plugin but does
+not claim this dependency tree is release-ready. A release policy decision or
+upstream remediation is required before publishing the installer.
 
 The first invocation is estimate-only: it performs the free route/token/cost
 check and inserts the estimate without judging. The user explicitly invokes
