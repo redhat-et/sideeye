@@ -2,11 +2,14 @@
   "name": "@redhat-et/sideeye-opencode",
   "version": "0.1.0",
   "type": "module",
+  "files": ["dist", "README.md"],
   "exports": {
-    ".": "./src/index.ts",
-    "./tui": "./src/tui.tsx"
+    ".": "./dist/index.js",
+    "./tui": "./dist/tui.js"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts"
   },
