@@ -1,0 +1,10 @@
+[package]
+name = "sideeye-providers"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Judge-provider boundary and deterministic test provider for Side-Eye"
+
+[dependencies]
+sideeye-core = { path = "../sideeye-core" }
+thiserror = "2"

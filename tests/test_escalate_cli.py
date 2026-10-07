@@ -31,6 +31,10 @@ def _wire(monkeypatch, tmp_path, *, est_cost, judge=None, input_tokens=50_000,
                                {"role": "assistant", "text": "did X"}],
                         touched_files=[{"path": "x.py", "count": 1}] if with_code else None)
     monkeypatch.setattr(E, "latest_session", lambda *a, **k: fake)
+    # `main()` resolves the default current session through this helper. Mock
+    # it explicitly so CI never depends on a developer's real Claude session
+    # files or on the runner's HOME contents.
+    monkeypatch.setattr(E, "resolve_current_session", lambda *a, **k: (fake, False))
     monkeypatch.setattr(E, "load_transcript", lambda p: t)
     if with_code:
         monkeypatch.setattr(E, "build_diff_entries", lambda *a, **k: [{"path": "x.py"}])

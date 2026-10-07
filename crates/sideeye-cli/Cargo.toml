@@ -1,0 +1,14 @@
+[package]
+name = "sideeye-cli"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[[bin]]
+name = "sideeye-rs"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+sideeye-core = { path = "../sideeye-core" }
