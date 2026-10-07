@@ -75,18 +75,38 @@ export async function reviewExport(
   }
 }
 
-function contextToExport(sessionID: string, context: AnyRecord): AnyRecord {
-  const model = context.model ?? {}
+function contextToExport(sessionID: string, context: unknown): AnyRecord {
+  const messages = Array.isArray(context)
+    ? context
+    : ((context as AnyRecord)?.messages ?? [])
+  const latestModel = [...messages]
+    .reverse()
+    .find((message: AnyRecord) => message.type === "assistant" && message.model)?.model
+    ?? (context as AnyRecord)?.model
+    ?? {}
   return {
     info: {
       id: sessionID,
-      model: { providerID: model.providerID, id: model.id },
+      model: { providerID: latestModel.providerID, id: latestModel.id },
     },
-    messages: (context.messages ?? []).flatMap((message: AnyRecord) => normalizeMessage(message, model)),
+    messages: messages.flatMap((message: AnyRecord) => normalizeMessage(message, latestModel)),
   }
 }
 
 function normalizeMessage(message: AnyRecord, model: AnyRecord): AnyRecord[] {
+  if (message.type === "user") {
+    return [{type: "user", text: message.text ?? "", files: message.files}]
+  }
+  if (message.type === "assistant") {
+    return [{
+      type: "assistant",
+      model: message.model ?? model,
+      content: message.content ?? [],
+    }]
+  }
+  if (message.type !== undefined) return []
+
+  // Keep support for the internal AI-message shape used by older fixtures.
   if (message.role === "user") {
     return [{ type: "user", text: textParts(message.content) }]
   }
@@ -173,7 +193,7 @@ async function findRepository(session: AnyRecord, exportData: AnyRecord, configu
   if (typeof sessionDirectory === "string") candidates.add(sessionDirectory)
   collectInputPaths(exportData, candidates)
   const roots = new Map<string, number>()
-  for (const candidate of [...candidates].slice(0, 64)) {
+  for (const candidate of candidates) {
     const root = await gitRoot(candidate)
     if (root) roots.set(root, (roots.get(root) ?? 0) + 1)
   }
@@ -213,7 +233,13 @@ function collectPaths(value: unknown, output: Set<string>, depth = 0): void {
 }
 
 async function gitRoot(candidate: string): Promise<string | undefined> {
-  const path = existsSync(candidate) && statSync(candidate).isDirectory() ? candidate : dirname(candidate)
+  let path: string
+  try {
+    path = existsSync(candidate) && statSync(candidate).isDirectory() ? candidate : dirname(candidate)
+  } catch {
+    return undefined
+  }
+  if (!existsSync(path)) return undefined
   const result = await runProcess("git", ["-C", path, "rev-parse", "--show-toplevel"], path)
   if (result.status !== 0) return undefined
   const root = result.stdout.trim()
@@ -305,6 +331,7 @@ export const testHelpers = {
   findRepository,
   gitMergeBase,
   gitTouchedFiles,
+  reviewSession,
   reviewExport,
   run,
 }

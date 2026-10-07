@@ -1,0 +1,48 @@
+[
+  {
+    "type": "user",
+    "id": "msg-user",
+    "text": "Fix the parser",
+    "files": []
+  },
+  {
+    "type": "assistant",
+    "id": "msg-assistant",
+    "model": {
+      "providerID": "openai",
+      "id": "gpt-test",
+      "variant": "xhigh"
+    },
+    "content": [
+      {
+        "type": "reasoning",
+        "text": "hidden reasoning"
+      },
+      {
+        "type": "text",
+        "text": "I will inspect the parser."
+      },
+      {
+        "type": "tool",
+        "name": "read",
+        "state": {
+          "status": "completed",
+          "input": {
+            "path": "/workspace/project/parser.rs"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "parser contents"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "type": "idle",
+    "id": "idle-1",
+    "outcome": "success"
+  }
+]
