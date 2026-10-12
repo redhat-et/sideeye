@@ -88,6 +88,11 @@ available to external/TUI clients but is not assumed to exist on server-plugin
 context. It is not automatically installed by this PR; setup will own
 installation and isolated-config rollout after plugin review.
 
+`sideeye setup` copies this package to the user data directory, builds its
+JavaScript entrypoints, and adds it to the OpenCode plugin list. OpenCode
+2.0.x requires the package directory to expose root `server.js` and `tui.js`
+entrypoints; the package includes both compatibility files.
+
 The package is pinned to the host API version used by this spike (`2.0.16`).
 `npm audit` currently reports one high-severity advisory in a transitive
 OpenCode/npm-registry dependency. CI typechecks and tests the plugin but does
