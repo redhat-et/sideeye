@@ -13,7 +13,7 @@ import json
 import os
 import pathlib
 
-from sideeye.adapters import claude_code, codex_rollout
+from sideeye.adapters import claude_code, codex_rollout, opencode
 
 CLAUDE_DIR = pathlib.Path.home() / ".claude" / "projects"
 CODEX_DIR = pathlib.Path.home() / ".codex" / "sessions"

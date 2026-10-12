@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/sideeye-core", "crates/sideeye-providers", "crates/sideeye-cli"]
+resolver = "2"

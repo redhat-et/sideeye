@@ -59,5 +59,7 @@ def session_verdict_record(transcript, verdict, meta, *, rubric_version, source,
         "generation_input_tokens": gu.get("input_tokens", 0),
         "generation_output_tokens": gu.get("output_tokens", 0),
         "generation_total_tokens": gu.get("total_tokens", 0),
+        "generation_cache_read_tokens": gu.get("cache_read_tokens", 0),
+        "generation_cache_write_tokens": gu.get("cache_write_tokens", 0),
         "judged_at": judged_at,
     }

@@ -28,12 +28,14 @@ import argparse
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from sideeye.adapters import latest_session, load_transcript, resolve_current_session  # noqa: E402
+from sideeye.adapters.opencode import parse_export  # noqa: E402
 from sideeye.config import RouteError, require_judge_route  # noqa: E402
 from sideeye.judge.code_artifact import build_diff_entries, render_diff_artifact  # noqa: E402
 from sideeye.judge.judge import (  # noqa: E402
@@ -47,7 +49,14 @@ from sideeye.judge.judge import (  # noqa: E402
     resolve_model,
     rubric_version,
 )
-from sideeye.judge.transcript import first_user_ask, render, render_budgeted, strip_escalation  # noqa: E402
+from sideeye.judge.transcript import (  # noqa: E402
+    first_user_ask,
+    redact_text,
+    redact_transcript,
+    render,
+    render_budgeted,
+    strip_escalation,
+)
 from sideeye.record import (  # noqa: E402
     ADAPTER_VERSION_BLIND,
     ADAPTER_VERSION_BLIND_TIERED,
@@ -92,6 +101,75 @@ def fail(msg):
     from sideeye.judge import style
     print(style.render_error(msg), file=sys.stderr)
     sys.exit(1)
+
+
+def _same_model_family(left, right):
+    """Match exact model ids and version-suffixed ids across providers."""
+    if not left or not right:
+        return False
+    aliases = {
+        "fable": "claude-fable-5",
+        "opus": "claude-opus-4-8",
+        "sonnet": "claude-sonnet-5",
+    }
+    left = str(left).rsplit("/", 1)[-1].lower()
+    right = str(right).rsplit("/", 1)[-1].lower()
+    left = aliases.get(left, left)
+    right = aliases.get(right, right)
+    return left == right or left.startswith(right + "-") or right.startswith(left + "-")
+
+
+def _generator_model_conflict(transcript, judge_model):
+    models = set(transcript.get("generator_models") or [])
+    models.update(turn.get("model") for turn in transcript.get("turns", []) if turn.get("model"))
+    return sorted(model for model in models if _same_model_family(model, judge_model))
+
+
+def _git_root(path):
+    path = pathlib.Path(path).expanduser().resolve()
+    if path.is_file():
+        path = path.parent
+    for candidate in (path, *path.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _resolve_repo_root(repo_hint, touched):
+    """Find one git root, including when a workspace contains nested repos."""
+    base = pathlib.Path(repo_hint or pathlib.Path.cwd()).expanduser().resolve()
+    direct = _git_root(base)
+    if direct:
+        return direct
+    roots = set()
+    for entry in touched or []:
+        raw_path = entry.get("path") if isinstance(entry, dict) else None
+        if not raw_path:
+            continue
+        candidate = pathlib.Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = base / candidate
+        root = _git_root(candidate)
+        if root:
+            roots.add(root)
+    return roots.pop() if len(roots) == 1 else base
+
+
+def _validate_diff_base(repo_root, diff_base):
+    if diff_base == "HEAD":
+        return diff_base
+    if not diff_base or diff_base.startswith("-"):
+        fail(f"invalid git diff base: {diff_base!r}")
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--verify", f"{diff_base}^{{commit}}"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        fail(f"could not validate git diff base {diff_base!r}: {exc}")
+    if result.returncode != 0:
+        fail(f"git diff base does not resolve to a commit: {diff_base!r}")
+    return diff_base
 
 
 def _fit_packet(transcript, asked, make_diff, rubric_text, *, base_url, api_key, model,
@@ -193,6 +271,8 @@ def _fit_packet(transcript, asked, make_diff, rubric_text, *, base_url, api_key,
 def main():
     ap = argparse.ArgumentParser(description="Side-Eye on-demand escalation (human stream)")
     ap.add_argument("--rollout", default=None, help="session file (default: latest in scope)")
+    ap.add_argument("--opencode-export", default=None,
+                    help="OpenCode V2 session export JSON, or '-' for stdin; intended for the native plugin")
     ap.add_argument("--client", choices=("claude", "codex"), default="claude",
                     help="which client's latest session to escalate (default claude)")
     ap.add_argument("--project", default=None,
@@ -215,9 +295,15 @@ def main():
     ap.add_argument("--model", default=ESCALATION_MODEL)
     ap.add_argument("--rubric", default=str(DEFAULT_RUBRIC))
     ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument("--json", action="store_true",
+                    help="emit the persisted structured verdict as the final stdout line")
+    ap.add_argument("--estimate-only", action="store_true",
+                    help="build and cost-check the packet without making a judge call")
     ap.add_argument("--repo", default=None,
                     help="git repo root for the code diff (default: cwd). The "
                          "session's touched files are diffed against HEAD here.")
+    ap.add_argument("--diff-base", default=None,
+                    help="git diff base for tracked files (default: HEAD; native plugins may provide a session/branch base)")
     ap.add_argument("--no-code", action="store_true",
                     help="judge narrative-only (the old blind mode). For "
                          "blind-vs-sighted comparison; the verdict is stamped "
@@ -231,6 +317,9 @@ def main():
     args = ap.parse_args()
     args.model = resolve_model(args.model)   # accept fable/opus/sonnet aliases
 
+    if args.rollout and args.opencode_export:
+        fail("--rollout and --opencode-export are mutually exclusive")
+
     if args.tier == 2:
         fail("tier-2 (agentic: check out the code and RUN it) is not implemented "
              "in this POC. Tier 2 is a sandboxed judge-worker with tools, not a "
@@ -242,18 +331,44 @@ def main():
     except RouteError as e:
         fail(str(e))
 
+    # Native OpenCode passes a sanitized V2 export directly. This avoids a
+    # second terminal and avoids guessing where OpenCode stores its database.
+    # The plugin also passes touched_files in the wrapper so the normal sighted
+    # diff path remains shared with Claude Code and Codex.
+    if args.opencode_export:
+        try:
+            if args.opencode_export == "-":
+                export = json.load(sys.stdin)
+            else:
+                export = json.loads(pathlib.Path(args.opencode_export).read_text(encoding="utf-8"))
+            extra = export.get("touched_files") if isinstance(export, dict) else None
+            wrapper_repo = export.get("repo") if isinstance(export, dict) else None
+            if args.repo is None and isinstance(wrapper_repo, str) and wrapper_repo.strip():
+                args.repo = wrapper_repo
+            wrapper_diff_base = export.get("diff_base") if isinstance(export, dict) else None
+            if args.diff_base is None and isinstance(wrapper_diff_base, str) and wrapper_diff_base.strip():
+                args.diff_base = wrapper_diff_base
+            transcript = parse_export(export, touched_files=extra)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            fail(f"invalid OpenCode export: {exc}")
+        rollout = None
+        scope = None
+        session_label = "OpenCode export"
     # Session selection. Default scope = the current project (cwd), so escalate
     # reviews the session you're actually in — not the global-latest, which is a
     # coin flip across every live Claude session on the machine.
-    if args.rollout:
+    elif args.rollout:
         scope = None
         rollout = pathlib.Path(args.rollout)
+        session_label = str(rollout)
     elif args.all_projects:
         scope = "all"
         rollout = latest_session(args.client, scope="all")
+        session_label = str(rollout) if rollout else "no session"
     elif args.project:
         scope = args.project
         rollout = latest_session(args.client, scope=args.project)
+        session_label = str(rollout) if rollout else "no session"
     else:
         scope = "cwd"
         # Robust to a drifted shell cwd (e.g. a skill's Bash tool running from
@@ -267,16 +382,18 @@ def main():
         if env_id and rollout and rollout.stem != env_id:
             print(f"(harness session {env_id[:8]} not found on disk; judging the "
                   "most recently active session instead)")
-    if not rollout or not rollout.exists():
+        session_label = str(rollout) if rollout else "no session"
+    if not args.opencode_export and (not rollout or not rollout.exists()):
         if scope == "cwd":
             fail(f"no {args.client} session in this project "
                  f"({latest_session.__module__}.claude_project_dir). "
                  "Pass --all-projects to search everywhere, or run from the "
                  "session's working directory.")
         fail(f"no {args.client} session found")
-    transcript = load_transcript(rollout)
-    if transcript is None:
-        fail(f"no usable turns in {rollout}")
+    if not args.opencode_export:
+        transcript = load_transcript(rollout)
+        if transcript is None:
+            fail(f"no usable turns in {rollout}")
 
     # Exclude Side-Eye's own escalation machinery BEFORE anything else reads the
     # transcript. Without this the packet is self-referential by construction:
@@ -291,6 +408,14 @@ def main():
               + (f" ({esc_dropped} turn(s))" if esc_dropped else " (annotated in-packet)")
               + " — this review grades the work, not the review request itself")
 
+    conflicts = _generator_model_conflict(transcript, args.model)
+    if conflicts:
+        fail(
+            f"judge model {args.model!r} also generated turns in this session "
+            f"({', '.join(conflicts)}); choose a different judge to avoid self-grading"
+        )
+    transcript = redact_transcript(transcript)
+
     rubric_text = load_rubric(args.rubric)
     rv = rubric_version(args.rubric)
 
@@ -298,7 +423,7 @@ def main():
     # first user turn is the cheapest recognition signal: if it's not the session
     # you meant, Ctrl-C now, before the judge call.
     first_ask = first_user_ask(transcript).replace("\n", " ")[:120]
-    print(f"Session : {rollout}")
+    print(f"Session : {session_label}")
     print(f"           {transcript['session_id'][:24]}  ({len(transcript['turns'])} turns)")
     if first_ask:
         print(f"First ask: {first_ask}")
@@ -316,14 +441,21 @@ def main():
     # unresolvable/absent files fall back to narrative-only (blind), honestly.
     adapter_version = ADAPTER_VERSION_SIGHTED
     touched = transcript.get("touched_files") or []
-    repo_root = pathlib.Path(args.repo) if args.repo else pathlib.Path.cwd()
+    repo_root = _resolve_repo_root(args.repo, touched)
+    if args.opencode_export and touched and not _git_root(repo_root):
+        fail(
+            "OpenCode export includes touched files but no git repository was "
+            "resolved; pass a repository root in the export wrapper or --repo"
+        )
+    diff_base = _validate_diff_base(repo_root, args.diff_base or "HEAD") if touched else "HEAD"
     # Build the diff entries ONCE (git is the slow part); make_diff then re-renders
     # them cheaply at any budget for the overflow search — no re-shelling to git.
     diff_entries = ([] if args.no_code or not touched
-                    else build_diff_entries(touched, repo_root))
+                    else build_diff_entries(touched, repo_root, diff_base=diff_base))
 
     def make_diff(budget_chars=None):
-        return render_diff_artifact(diff_entries, budget_chars) or None
+        artifact = render_diff_artifact(diff_entries, budget_chars) or None
+        return redact_text(artifact) if artifact else None
 
     if args.no_code:
         print("Code    : --no-code (blind mode, v0) — narrative only")
@@ -390,10 +522,27 @@ def main():
         fail(f"estimated ${est_cost:.4f} exceeds --max-cost ${args.max_cost:.2f} "
              f"({input_tokens:,} input tokens). Re-run with --max-cost {est_cost + 1:.0f} to proceed.")
 
+    if args.estimate_only:
+        estimate = {
+            "type": "estimate",
+            "session_id": transcript["session_id"],
+            "input_tokens": input_tokens,
+            "estimated_cost_usd": est_cost,
+            "exact": exact,
+            "reason": reason,
+            "adapter_version": adapter_version,
+            "touched_files": len(touched),
+        }
+        if args.json:
+            print(json.dumps(estimate, ensure_ascii=False, separators=(",", ":")))
+        else:
+            print(f"estimate only: ~${est_cost:.4f} ({input_tokens:,} input tokens)")
+        return
+
     if not args.yes:
         try:
             input("\nEscalate this session to the judge? [Enter to proceed, Ctrl-C to abort] ")
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, EOFError):
             print("\naborted before judge call (no spend).")
             return
 
@@ -440,8 +589,11 @@ def main():
 
     # Interactive: show the review prominently — the human asked to see it.
     # Colors render only on a real TTY; piped captures stay plain text.
-    from sideeye.judge import style
-    print(style.render_verdict(record, str(out_path)))
+    if args.json:
+        print(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
+    else:
+        from sideeye.judge import style
+        print(style.render_verdict(record, str(out_path)))
 
 
 if __name__ == "__main__":

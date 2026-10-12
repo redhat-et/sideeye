@@ -1,0 +1,14 @@
+{
+  "answered_what_was_asked": true,
+  "correctness": "partially_correct",
+  "claims_supported": false,
+  "score": 3,
+  "issues": [
+    {
+      "description": "The response makes an unsupported claim.",
+      "severity": "major"
+    }
+  ],
+  "overall_severity": "major",
+  "summary": "The answer needs evidence for one claim."
+}

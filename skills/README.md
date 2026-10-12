@@ -4,7 +4,7 @@ The canonical skill definition, shipped as part of the `sideeye` Claude Code
 plugin. Install it with the plugin — no file copying:
 
 ```
-/plugin marketplace add yossiovadia/sideeye
+/plugin marketplace add redhat-et/sideeye
 /plugin install sideeye@sideeye
 ```
 
@@ -40,7 +40,7 @@ failure Side-Eye exists to prevent.
 ## Requirements at runtime
 - The `sideeye` engine. The skill self-installs it on first use (one-time ~30s,
   needs `uv` or `pipx` on PATH); or pre-install: `uv tool install
-  git+https://github.com/yossiovadia/sideeye`.
+  git+https://github.com/redhat-et/sideeye`.
 - A usable judge route — see "Configure the judge route" in the root
   [README](../README.md) (env vars, `~/.config/sideeye/config.json`, or ambient
   ANTHROPIC_* with an Anthropic host). The skill's shell environment is the
