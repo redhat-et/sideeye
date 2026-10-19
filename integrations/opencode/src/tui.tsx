@@ -1,8 +1,7 @@
-import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
 import { reviewExport } from "./index.js"
 
-export default Plugin.define({
+export default {
   id: "sideeye.opencode.tui",
   setup(context: Context) {
     context.keymap.layer(() => ({
@@ -37,4 +36,4 @@ export default Plugin.define({
       ],
     }))
   },
-})
+}

@@ -1,7 +1,6 @@
 import { existsSync, statSync } from "node:fs"
 import { dirname, isAbsolute, resolve } from "node:path"
 import { spawn } from "node:child_process"
-import { Plugin } from "@opencode/plugin"
 import type { CommandInvocation } from "@opencode/plugin/promise/command"
 import type { Context as ServerContext } from "@opencode/plugin/promise/plugin"
 
@@ -9,7 +8,7 @@ type AnyRecord = Record<string, any>
 
 const ABSOLUTE_PATH = /(?:\/(?:Users|home|workspace|private|tmp|var)\/)[^\s"'`]+/g
 
-export default Plugin.define({
+export default {
   id: "sideeye.opencode",
   async setup(ctx: ServerContext) {
     await ctx.command.transform((editor) => {
@@ -23,7 +22,7 @@ export default Plugin.define({
       })
     })
   },
-})
+}
 
 async function reviewSession(ctx: ServerContext, sessionID: string, commandText = ""): Promise<string> {
   try {
