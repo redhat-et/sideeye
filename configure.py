@@ -76,6 +76,10 @@ def _opencode_config_file() -> pathlib.Path:
     return directory / "opencode.json"
 
 
+def _opencode_cli_config_file() -> pathlib.Path:
+    return _opencode_config_file().parent / "cli.json"
+
+
 def _write_json_secure(path: pathlib.Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     old_mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
@@ -274,6 +278,28 @@ def _install_opencode_plugin() -> tuple[str, pathlib.Path | None]:
         plugins.append(entry)
     opencode_config["plugins"] = plugins
     _write_json_secure(config_path_value, opencode_config)
+    # OpenCode's TUI plugins are configured in cli.json. Keep the server and
+    # TUI entries aligned so the slash alias is available after a restart.
+    cli_path = _opencode_cli_config_file()
+    cli_entry = {"package": str(destination), "options": {"command": [_which("sideeye") or "sideeye"]}}
+    if cli_path.exists():
+        cli_raw = cli_path.read_text(encoding="utf-8")
+        try:
+            cli_config = json.loads(cli_raw)
+        except json.JSONDecodeError:
+            _write_text_secure(cli_path, _jsonc_insert_plugins(cli_raw, cli_entry))
+        else:
+            cli_plugins = list(cli_config.get("plugins") or [])
+            if not any(
+                item == str(destination)
+                or (isinstance(item, dict) and item.get("package") == str(destination))
+                for item in cli_plugins
+            ):
+                cli_plugins.append(cli_entry)
+            cli_config["plugins"] = cli_plugins
+            _write_json_secure(cli_path, cli_config)
+    else:
+        _write_json_secure(cli_path, {"$schema": "https://opencode.ai/v2/cli.json", "plugins": [cli_entry]})
     return "configured", config_path_value
 
 
