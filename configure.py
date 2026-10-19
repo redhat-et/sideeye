@@ -41,13 +41,24 @@ def _opencode_config_file() -> pathlib.Path:
                 capture_output=True, text=True, timeout=20,
             )
             if result.returncode == 0 and result.stdout.strip():
-                return pathlib.Path(result.stdout.strip()).expanduser() / "opencode.json"
+                directory = pathlib.Path(result.stdout.strip()).expanduser()
+                for name in ("opencode.jsonc", "opencode.json"):
+                    candidate = directory / name
+                    if candidate.exists():
+                        return candidate
+                return directory / "opencode.json"
         except (OSError, subprocess.SubprocessError):
             pass
     config_dir = os.environ.get("OPENCODE_CONFIG_DIR")
     if config_dir:
-        return pathlib.Path(config_dir).expanduser() / "opencode.json"
-    return pathlib.Path.home() / ".config" / "opencode" / "opencode.json"
+        directory = pathlib.Path(config_dir).expanduser()
+    else:
+        directory = pathlib.Path.home() / ".config" / "opencode"
+    for name in ("opencode.jsonc", "opencode.json"):
+        candidate = directory / name
+        if candidate.exists():
+            return candidate
+    return directory / "opencode.json"
 
 
 def _write_json_secure(path: pathlib.Path, data: dict) -> None:
@@ -67,6 +78,104 @@ def _write_json_secure(path: pathlib.Path, data: dict) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+def _write_text_secure(path: pathlib.Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old_mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
+    try:
+        os.fchmod(fd, old_mode & 0o600 or 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(temporary, path)
+        os.chmod(path, old_mode & 0o600 or 0o600)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _jsonc_insert_plugins(text: str, entry: dict) -> str:
+    """Add one plugin entry to a JSONC object without rewriting comments."""
+    if "\"plugins\"" in text and str(entry["package"]) in text:
+        return text
+    encoded = json.dumps(entry, indent=2)
+    if "\"plugins\"" not in text:
+        close = _last_object_close(text)
+        if close is None:
+            raise SetupError("OpenCode JSONC config has no root object")
+        before = text[:close].rstrip()
+        separator = "," if before and not before.endswith(",") else ""
+        addition = f'{separator}\n  "plugins": [\n{_indent(encoded, 4)}\n  ]\n'
+        return text[:len(before)] + addition + text[close:]
+
+    start = text.find("\"plugins\"")
+    opening = text.find("[", start)
+    closing = _matching_close(text, opening, "[", "]") if opening >= 0 else None
+    if opening < 0 or closing is None:
+        raise SetupError("OpenCode JSONC plugins entry is not an array")
+    before = text[opening + 1:closing].rstrip()
+    separator = "," if before and not before.endswith(",") else ""
+    addition = f'{separator}\n{_indent(encoded, 2)}\n'
+    return text[:opening + 1] + before + addition + text[closing:]
+
+
+def _indent(text: str, spaces: int) -> str:
+    prefix = " " * spaces
+    return "\n".join(prefix + line for line in text.splitlines())
+
+
+def _matching_close(text: str, opening: int, left: str, right: str) -> int | None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(opening, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == left:
+            depth += 1
+        elif char == right:
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _last_object_close(text: str) -> int | None:
+    depth = 0
+    in_string = False
+    escaped = False
+    last = None
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                last = index
+    return last
 
 
 def _configure_judge(*, base_url: str | None, api_key: str | None) -> pathlib.Path:
@@ -128,13 +237,16 @@ def _install_opencode_plugin() -> tuple[str, pathlib.Path | None]:
 
     config_path_value = _opencode_config_file()
     if config_path_value.exists():
+        raw_config = config_path_value.read_text(encoding="utf-8")
         try:
-            opencode_config = json.loads(config_path_value.read_text(encoding="utf-8"))
+            opencode_config = json.loads(raw_config)
         except json.JSONDecodeError as exc:
-            raise SetupError(
-                f"OpenCode config is not plain JSON ({config_path_value}); "
-                "setup will not rewrite JSONC automatically"
-            ) from exc
+            plugins_entry = {
+                "package": str(destination),
+                "options": {"command": [_which("sideeye") or "sideeye"]},
+            }
+            _write_text_secure(config_path_value, _jsonc_insert_plugins(raw_config, plugins_entry))
+            return "configured", config_path_value
     else:
         opencode_config = {"$schema": "https://opencode.ai/config.json"}
     plugins = list(opencode_config.get("plugins") or [])
