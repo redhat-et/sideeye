@@ -30,6 +30,20 @@ def _which(name: str) -> str | None:
     return shutil.which(name)
 
 
+def _git_root(path: pathlib.Path | None = None) -> pathlib.Path | None:
+    root = path or pathlib.Path.cwd()
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return pathlib.Path(result.stdout.strip()).resolve()
+
+
 def _opencode_config_file() -> pathlib.Path:
     explicit = os.environ.get("OPENCODE_CONFIG")
     if explicit:
@@ -255,33 +269,37 @@ def _install_opencode_plugin() -> tuple[str, pathlib.Path | None]:
             )
 
     config_path_value = _opencode_config_file()
+    command_options = {"command": [_which("sideeye") or "sideeye"]}
+    repository = _git_root()
+    if repository:
+        command_options["repo"] = str(repository)
+    entry = {"package": str(destination), "options": command_options}
     if config_path_value.exists():
         raw_config = config_path_value.read_text(encoding="utf-8")
         try:
             opencode_config = json.loads(raw_config)
         except json.JSONDecodeError as exc:
-            plugins_entry = {
-                "package": str(destination),
-                "options": {"command": [_which("sideeye") or "sideeye"]},
-            }
-            _write_text_secure(config_path_value, _jsonc_insert_plugins(raw_config, plugins_entry))
+            _write_text_secure(config_path_value, _jsonc_insert_plugins(raw_config, entry))
             return "configured", config_path_value
     else:
         opencode_config = {"$schema": "https://opencode.ai/config.json"}
     plugins = list(opencode_config.get("plugins") or [])
-    entry = {"package": str(destination), "options": {"command": [_which("sideeye") or "sideeye"]}}
-    if not any(
-        (item == str(destination))
-        or (isinstance(item, dict) and item.get("package") == str(destination))
-        for item in plugins
-    ):
+    found = False
+    for index, item in enumerate(plugins):
+        if isinstance(item, dict) and item.get("package") == str(destination):
+            plugins[index] = {**item, "options": {**(item.get("options") or {}), **command_options}}
+            found = True
+        elif item == str(destination):
+            plugins[index] = entry
+            found = True
+    if not found:
         plugins.append(entry)
     opencode_config["plugins"] = plugins
     _write_json_secure(config_path_value, opencode_config)
     # OpenCode's TUI plugins are configured in cli.json. Keep the server and
     # TUI entries aligned so the slash alias is available after a restart.
     cli_path = _opencode_cli_config_file()
-    cli_entry = str(destination)
+    cli_entry = entry
     if cli_path.exists():
         cli_raw = cli_path.read_text(encoding="utf-8")
         try:
@@ -290,15 +308,15 @@ def _install_opencode_plugin() -> tuple[str, pathlib.Path | None]:
             _write_text_secure(cli_path, _jsonc_insert_plugins(cli_raw, cli_entry))
         else:
             cli_plugins = list(cli_config.get("plugins") or [])
-            cli_plugins = [
-                cli_entry if isinstance(item, dict) and item.get("package") == cli_entry else item
-                for item in cli_plugins
-            ]
-            if not any(
-                item == cli_entry
-                or (isinstance(item, dict) and item.get("package") == cli_entry)
-                for item in cli_plugins
-            ):
+            found = False
+            for index, item in enumerate(cli_plugins):
+                if isinstance(item, dict) and item.get("package") == str(destination):
+                    cli_plugins[index] = {**item, "options": {**(item.get("options") or {}), **command_options}}
+                    found = True
+                elif item == str(destination):
+                    cli_plugins[index] = cli_entry
+                    found = True
+            if not found:
                 cli_plugins.append(cli_entry)
             cli_config["plugins"] = cli_plugins
             _write_json_secure(cli_path, cli_config)
