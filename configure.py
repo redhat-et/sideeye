@@ -281,7 +281,7 @@ def _install_opencode_plugin() -> tuple[str, pathlib.Path | None]:
     # OpenCode's TUI plugins are configured in cli.json. Keep the server and
     # TUI entries aligned so the slash alias is available after a restart.
     cli_path = _opencode_cli_config_file()
-    cli_entry = {"package": str(destination), "options": {"command": [_which("sideeye") or "sideeye"]}}
+    cli_entry = str(destination)
     if cli_path.exists():
         cli_raw = cli_path.read_text(encoding="utf-8")
         try:
@@ -290,9 +290,13 @@ def _install_opencode_plugin() -> tuple[str, pathlib.Path | None]:
             _write_text_secure(cli_path, _jsonc_insert_plugins(cli_raw, cli_entry))
         else:
             cli_plugins = list(cli_config.get("plugins") or [])
+            cli_plugins = [
+                cli_entry if isinstance(item, dict) and item.get("package") == cli_entry else item
+                for item in cli_plugins
+            ]
             if not any(
-                item == str(destination)
-                or (isinstance(item, dict) and item.get("package") == str(destination))
+                item == cli_entry
+                or (isinstance(item, dict) and item.get("package") == cli_entry)
                 for item in cli_plugins
             ):
                 cli_plugins.append(cli_entry)
