@@ -12,6 +12,7 @@ import getpass
 import json
 import os
 import pathlib
+import re
 import shutil
 import stat
 import subprocess
@@ -36,9 +37,23 @@ def _opencode_config_file() -> pathlib.Path:
     command = _which("opencode")
     if command:
         try:
+            command_path = pathlib.Path(command)
+            debug_command = [command, "debug", "paths", "config"]
+            debug_env = None
+            # Some local launchers prepend --standalone and select a private
+            # XDG profile. Ask the real binary directly so setup writes to the
+            # profile the launcher actually uses.
+            if command_path.is_file() and command_path.read_text(errors="ignore").find("ENMAAS_OPENCODE_CONFIG_HOME") >= 0:
+                wrapper = command_path.read_text(errors="ignore")
+                match = re.search(r"XDG_CONFIG_HOME=\"\$\{ENMAAS_OPENCODE_CONFIG_HOME:-\$HOME/([^}\"]+)\}\"", wrapper)
+                default_home = pathlib.Path.home() / (match.group(1) if match else ".config/opencode")
+                config_home = os.environ.get("ENMAAS_OPENCODE_CONFIG_HOME") or str(default_home)
+                real_binary = os.environ.get("OPENCODE_REAL_BIN") or "/opt/homebrew/bin/opencode"
+                debug_command = [real_binary, "debug", "paths", "config"]
+                debug_env = {**os.environ, "XDG_CONFIG_HOME": config_home}
             result = subprocess.run(
-                [command, "debug", "paths", "config"],
-                capture_output=True, text=True, timeout=20,
+                debug_command,
+                capture_output=True, text=True, timeout=20, env=debug_env,
             )
             if result.returncode == 0 and result.stdout.strip():
                 directory = pathlib.Path(result.stdout.strip()).expanduser()
