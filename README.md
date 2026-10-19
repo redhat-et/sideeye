@@ -26,6 +26,21 @@ uv tool install git+https://github.com/redhat-et/sideeye   # or pipx / pip insta
 pip install -e .                                             # development checkout
 ```
 
+### One-command setup
+
+After installing the CLI, run:
+
+```bash
+sideeye setup
+```
+
+Setup asks once for the judge credential, stores it in the Side-Eye config with
+mode 600, detects Claude Code, Codex, and OpenCode, and configures the bundled
+OpenCode plugin when Node/npm and a supported OpenCode config are available.
+It preserves unrelated JSON settings. It does not rewrite JSONC files.
+
+Use `sideeye setup --no-opencode` to configure only the judge route.
+
 Runtime requirements (judge route) are in the section below.
 
 ### Configure the judge route
@@ -67,7 +82,7 @@ Both spend real money. Observed on 20 dogfood reviews: `advise` ≈ $0.02–$1,
 `review`, Fable 5 for `advise`; `--model fable|opus|sonnet|haiku` to choose,
 `--max-cost N` as a ceiling).
 
-The engine is still POC-grade in places, but it runs for real: 156 offline
+The engine is still POC-grade in places, but it runs for real: 165 offline
 tests, and the capture → judge → verdict → cost pipeline is verified on real
 sessions. It is plain Python glue — deliberately: the perf-critical hot path is
 the gateway (Rust/praxis); the judge worker is I/O-bound (one multi-second LLM
@@ -88,6 +103,9 @@ sideeye/
   judge/judge.py                 forced-tool-call structured verdict; judge_session()
   adapters/codex_rollout.py      adapter #1: Codex rollout log -> SessionTranscript
   adapters/claude_code.py        adapter #2: Claude Code transcript -> SessionTranscript
+  adapters/opencode.py           adapter #3: OpenCode V2 export -> SessionTranscript
+  integrations/opencode/         native OpenCode server/TUI plugin
+  configure.py                   one-command setup and harness detection
   skills/                        Claude Code plugin skill (the /sideeye:ask router)
   docs/                          pitch, MVP scope, phase-C design questions, cost distillation
   record.py                      shared session-verdict record shape
@@ -95,7 +113,7 @@ sideeye/
   sampler.py                     Phase C: RANDOM stream — scan rollouts, judge, verdicts/sampled.jsonl
   escalate.py                    Phase C: HUMAN stream — "ask the expensive model", verdicts/escalated.jsonl
   cost_report.py                 the money story: counterfactual savings + quality, CLI + HTML
-  tests/                         unit tests (no network): 156 passing
+  tests/                         unit tests (no network): 165 passing
   data/                          seed_pairs, hard_tasks, ground_truth (fixtures)
   verdicts/                      run output (gitignored)
 ```
@@ -118,7 +136,7 @@ options are just adapters into one pipe:
 ## Phase B — pair judging (falsification gate) — DONE
 
 ```bash
-pytest tests -q                                         # 156 tests, no network
+pytest tests -q                                         # 165 tests, no network
 python -m sideeye.run_judge --pairs data/seed_pairs.jsonl \
     --ground-truth data/ground_truth.json               # needs a judge route
 ```

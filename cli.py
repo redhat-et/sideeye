@@ -16,6 +16,7 @@ USAGE = """sideeye — on-demand session review (draft cheap, review expensive)
 
   sideeye review [opts]   full-session review (sighted: transcript + code diff)
   sideeye advise [opts]   quick second opinion on the last exchange
+  sideeye setup            configure judge credentials and detected harnesses
   sideeye route           show the resolved judge route + guards (spends $0)
 
 Run `sideeye review -h` or `sideeye advise -h` for options.
@@ -35,6 +36,9 @@ def main():
         text, ok = describe_route()
         print(text)
         sys.exit(0 if ok else 1)
+    if cmd == "setup":
+        from sideeye.configure import main as run_setup
+        sys.exit(run_setup(rest))
     # Re-shape argv so the delegated module's argparse sees only its own args,
     # with a sensible prog name in help/usage.
     sys.argv = [f"sideeye {cmd}", *rest]

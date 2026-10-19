@@ -28,4 +28,16 @@ packages = ["sideeye", "sideeye.judge", "sideeye.adapters"]
 [tool.setuptools.package-data]
 # Rubrics are read at runtime relative to the package dir (REPO / "rubric" / …);
 # without this, wheel installs would ship the code but drop the grading criteria.
-sideeye = ["rubric/*.md"]
+sideeye = [
+  "rubric/*.md",
+  "integrations/opencode/README.md",
+  "integrations/opencode/package.json",
+  "integrations/opencode/package-lock.json",
+  "integrations/opencode/server.js",
+  "integrations/opencode/tui.js",
+  "integrations/opencode/tsconfig*.json",
+  "integrations/opencode/src/*.ts",
+  "integrations/opencode/src/*.tsx",
+  "integrations/opencode/dist/*.js",
+  "integrations/opencode/dist/*.map",
+]
