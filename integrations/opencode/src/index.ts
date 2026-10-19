@@ -316,7 +316,12 @@ function runProcess(command: string, args: string[], cwd: string, input = ""): P
     child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString() })
     child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString() })
     child.on("error", reject)
-    child.stdin.on("error", (error: Error) => { stderr += `\n${error.message}` })
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+      // The bridge can reject before consuming stdin (for example when the
+      // judge route is missing). EPIPE is then expected and must not obscure
+      // the actionable Side-Eye error.
+      if (error.code !== "EPIPE") stderr += `\n${error.message}`
+    })
     child.on("close", (code: number | null) => resolveResult({ status: code ?? 1, stdout, stderr }))
     if (input) child.stdin.end(input)
     else child.stdin.end()
