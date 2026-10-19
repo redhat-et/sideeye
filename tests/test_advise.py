@@ -229,7 +229,8 @@ def test_resolve_model_aliases():
     assert J.resolve_model("some-other-model") == "some-other-model"
 
 
-def test_resolve_judge_route_falls_back_to_anthropic(monkeypatch):
+def test_resolve_judge_route_falls_back_to_anthropic(monkeypatch, tmp_path):
+    monkeypatch.setenv("SIDEEYE_CONFIG", str(tmp_path / "no-config.json"))
     monkeypatch.delenv("SIDEEYE_JUDGE_BASE_URL", raising=False)
     monkeypatch.delenv("SIDEEYE_JUDGE_API_KEY", raising=False)
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")

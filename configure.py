@@ -30,6 +30,11 @@ def _which(name: str) -> str | None:
     return shutil.which(name)
 
 
+def _normalize_judge_base_url(value: str) -> str:
+    value = value.rstrip("/")
+    return value[:-3] if value.endswith("/v1") else value
+
+
 def _git_root(path: pathlib.Path | None = None) -> pathlib.Path | None:
     root = path or pathlib.Path.cwd()
     try:
@@ -229,7 +234,7 @@ def _configure_judge(*, base_url: str | None, api_key: str | None) -> pathlib.Pa
     judge["api_key"] = key
     selected_base = base_url or os.environ.get("SIDEEYE_JUDGE_BASE_URL") or judge.get("base_url")
     if selected_base:
-        judge["base_url"] = selected_base
+        judge["base_url"] = _normalize_judge_base_url(selected_base)
     elif "base_url" in judge:
         judge.pop("base_url")
     config["judge"] = judge
