@@ -314,14 +314,36 @@ def test_count_tokens_strips_max_tokens(monkeypatch):
         def json(self):
             return {"input_tokens": 7}
     def fake_post(url, headers=None, json=None, timeout=None):
+        sent["url"] = url
         sent["body"] = json
         return FakeResp()
     monkeypatch.setattr(J.requests, "post", fake_post)
     body = J.build_request_body("r", "q", "a", model="claude-sonnet-5")
     n, ok, reason = J.count_tokens("http://x", "k", body)
     assert ok is True and n == 7 and reason == ""
+    assert sent["url"] == "http://x/v1/messages/count_tokens"
     assert "max_tokens" not in sent["body"]
     assert "tools" in sent["body"] and "tool_choice" in sent["body"]
+
+
+def test_anthropic_base_url_with_v1_suffix_is_normalized(monkeypatch):
+    sent = {}
+
+    class FakeResp:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"input_tokens": 1}
+
+    def fake_post(url, **kwargs):
+        sent["url"] = url
+        return FakeResp()
+
+    monkeypatch.setattr(J.requests, "post", fake_post)
+    body = J.build_request_body("r", "q", "a", model="claude-sonnet-5")
+    J.count_tokens("https://judge.example/v1", "k", body)
+    assert sent["url"] == "https://judge.example/v1/messages/count_tokens"
 
 
 def test_is_flagged_thresholds():
