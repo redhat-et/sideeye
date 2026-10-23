@@ -10,8 +10,8 @@ The workspace currently contains:
 
 - `sideeye-core` — `ReviewPacket`, `Verdict`, evidence/artifact types, and
   validation and packet redaction.
-- `sideeye-providers` — the provider-neutral `JudgeProvider` trait and a
-  deterministic fake provider for hermetic tests.
+- `sideeye-providers` — the provider-neutral `JudgeProvider` trait, a
+  deterministic fake provider, and the Anthropic Messages provider.
 - `sideeye-cli` — experimental `sideeye-rs doctor`, packet validation, and
   `review` through the fake provider.
 
@@ -22,6 +22,8 @@ cargo run -p sideeye-cli -- doctor
 cargo run -p sideeye-cli -- validate packet.json
 cargo run -p sideeye-cli -- review --provider fake \
   --fixture verdict.json packet.json
+cargo run -p sideeye-cli -- review packet.json --provider anthropic \
+  --model claude-opus-4-8 --rubric rubric/rubric_session_v2.md
 ```
 
 The `doctor` command is intentionally offline. It resolves the same route chain

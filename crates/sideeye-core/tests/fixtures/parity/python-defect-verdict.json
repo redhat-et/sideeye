@@ -1,0 +1,20 @@
+{
+  "schema_version": "sideeye.verdict.v1",
+  "packet_id": "live-rust-2",
+  "rubric_version": "rubric",
+  "answered_what_was_asked": true,
+  "correctness": "incorrect",
+  "claims_supported": false,
+  "score": 1,
+  "issues": [
+    {"description": "The response claims all 42 tests pass with no evidence.", "severity": "critical"},
+    {"description": "The response did not cite evidence as asked.", "severity": "major"}
+  ],
+  "overall_severity": "critical",
+  "summary": "The response asserts all 42 tests pass but cites no evidence.",
+  "judge_provider": "anthropic",
+  "judge_model": "claude-opus-4-8",
+  "input_tokens": 1097,
+  "output_tokens": 347,
+  "cost_usd": 0.01416
+}

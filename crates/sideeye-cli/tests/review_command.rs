@@ -56,7 +56,7 @@ fn unsupported_provider_fails_closed() {
         .args([
             "review",
             "--provider",
-            "anthropic",
+            "openai",
             fixture("review-packet.json").to_str().unwrap(),
         ])
         .output()

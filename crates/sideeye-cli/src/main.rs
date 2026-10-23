@@ -39,12 +39,24 @@ enum Command {
     Review {
         /// JSON packet path, or `-` for stdin.
         packet: PathBuf,
-        /// Provider to use. Only the deterministic fixture provider is enabled.
+        /// Provider to use: `fake` or `anthropic`.
         #[arg(long, default_value = "fake")]
         provider: String,
         /// Fixture verdict JSON. Required by the fake provider.
         #[arg(long)]
         fixture: Option<PathBuf>,
+        /// Judge base URL override (anthropic provider).
+        #[arg(long)]
+        base_url: Option<String>,
+        /// Judge model id (anthropic provider).
+        #[arg(long, default_value = "claude-opus-4-8")]
+        model: String,
+        /// Rubric file (anthropic provider).
+        #[arg(long, default_value = "rubric/rubric_session_v2.md")]
+        rubric: PathBuf,
+        /// Output token ceiling (anthropic provider).
+        #[arg(long, default_value_t = 4096)]
+        max_tokens: u32,
     },
 }
 
@@ -66,27 +78,63 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             packet,
             provider,
             fixture,
-        } => review(packet, provider, fixture),
+            base_url,
+            model,
+            rubric,
+            max_tokens,
+        } => review(
+            packet, provider, fixture, base_url, model, rubric, max_tokens,
+        ),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn review(
     path: PathBuf,
     provider_name: String,
     fixture: Option<PathBuf>,
+    base_url: Option<String>,
+    model: String,
+    rubric: PathBuf,
+    max_tokens: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if provider_name != "fake" {
-        return Err(format!(
-            "provider {provider_name:?} is not implemented in this slice; use --provider fake"
-        )
-        .into());
-    }
-    let fixture = fixture.ok_or("--fixture is required for --provider fake")?;
     let packet: ReviewPacket = serde_json::from_str(&read_input(path)?)?;
-    let fixture_verdict: sideeye_core::Verdict =
-        serde_json::from_str(&fs::read_to_string(fixture)?)?;
-    let provider = FakeJudgeProvider::new("fake", "fixture-judge", fixture_verdict);
-    let verdict = provider.judge(&packet)?;
+    let verdict = match provider_name.as_str() {
+        "fake" => {
+            let fixture = fixture.ok_or("--fixture is required for --provider fake")?;
+            let fixture_verdict: sideeye_core::Verdict =
+                serde_json::from_str(&fs::read_to_string(fixture)?)?;
+            FakeJudgeProvider::new("fake", "fixture-judge", fixture_verdict).judge(&packet)?
+        }
+        "anthropic" => {
+            let config = load_judge_config();
+            let mut route = resolve_judge_route(&config);
+            if base_url.is_some() {
+                route.base = base_url;
+                route.source = Some("flag");
+            }
+            validate_route(&route)?;
+            let base = route.base.ok_or("no judge base URL configured")?;
+            let key = route.key.ok_or("no judge credential configured")?;
+            let rubric_text = fs::read_to_string(&rubric)
+                .map_err(|error| format!("cannot read rubric {}: {error}", rubric.display()))?;
+            let rubric_version = rubric
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("unknown")
+                .to_owned();
+            sideeye_providers::AnthropicProvider::new(base, key, model, rubric_text, rubric_version)
+                .with_max_tokens(max_tokens)
+                .judge(&packet)?
+        }
+        other => {
+            return Err(format!(
+                "provider {other:?} is not implemented; use --provider fake or anthropic"
+            )
+            .into());
+        }
+    };
+    verdict.validate()?;
     println!("{}", serde_json::to_string(&verdict)?);
     Ok(())
 }
