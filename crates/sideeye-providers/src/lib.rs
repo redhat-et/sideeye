@@ -7,6 +7,10 @@
 use sideeye_core::{ContractError, ReviewPacket, Verdict};
 use thiserror::Error;
 
+mod anthropic;
+
+pub use anthropic::AnthropicProvider;
+
 pub trait JudgeProvider {
     fn provider_name(&self) -> &str;
     fn model_name(&self) -> &str;
@@ -18,7 +22,11 @@ pub enum ProviderError {
     #[error("review packet is invalid: {0}")]
     InvalidPacket(#[from] ContractError),
     #[error("judge returned an invalid verdict: {0}")]
-    InvalidVerdict(ContractError),
+    InvalidVerdict(String),
+    #[error("provider configuration error: {0}")]
+    Configuration(String),
+    #[error("provider request failed: {0}")]
+    Network(String),
 }
 
 /// Deterministic provider used by contract tests and hermetic harness CI.
@@ -59,7 +67,9 @@ impl JudgeProvider for FakeJudgeProvider {
         verdict.packet_id = Some(packet.packet_id.clone());
         verdict.judge_provider = Some(self.provider.clone());
         verdict.judge_model = Some(self.model.clone());
-        verdict.validate().map_err(ProviderError::InvalidVerdict)?;
+        verdict
+            .validate()
+            .map_err(|error| ProviderError::InvalidVerdict(error.to_string()))?;
         Ok(verdict)
     }
 }
