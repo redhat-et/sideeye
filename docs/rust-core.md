@@ -26,8 +26,14 @@ cargo run -p sideeye-cli -- review --provider fake \
 cargo run -p sideeye-cli -- review packet.json --provider anthropic \
   --model claude-opus-4-8 --rubric rubric/rubric_session_v2.md
 cargo run -p sideeye-cli -- packet --opencode-export export.json --redact
+cargo run -p sideeye-cli -- packet --opencode-export export.json --redact \
+  --repo /path/to/repo --touched-file src/parser.rs --diff-base HEAD
 cargo run -p sideeye-cli -- estimate packet.json --model claude-opus-4-8
 ```
+
+Passing `--repo` and one or more `--touched-file` values adds a `git_diff`
+artifact, so the review is sighted instead of narrative-only. Diffs over the
+character budget are truncated and marked incomplete.
 
 `estimate` calls the free `count_tokens` endpoint and never the judge. Both
 `estimate` and `review` refuse a judge model that also generated turns in the
