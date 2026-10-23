@@ -27,3 +27,40 @@ def test_setup_requires_a_credential_in_noninteractive_mode(monkeypatch, tmp_pat
 
     assert setup.main(["--no-opencode"]) == 1
     assert not (tmp_path / "sideeye.json").exists()
+
+
+def test_setup_updates_existing_jsonc_without_dropping_comments(monkeypatch, tmp_path):
+    config = tmp_path / "opencode.jsonc"
+    config.write_text('{\n  // keep this setting\n  "model": "provider/model"\n}\n')
+    monkeypatch.setattr(setup, "_opencode_config_file", lambda: config)
+    monkeypatch.setenv("SIDEEYE_CONFIG", str(tmp_path / "sideeye.json"))
+    monkeypatch.setenv("SIDEEYE_JUDGE_API_KEY", "test-key")
+    source = tmp_path / "plugin"
+    source.mkdir()
+    (source / "package.json").write_text("{}")
+    monkeypatch.setattr(setup, "_plugin_source", lambda: source)
+    monkeypatch.setattr(setup, "_which", lambda name: "/usr/bin/npm" if name == "npm" else "/usr/local/bin/sideeye")
+    monkeypatch.setattr(setup.subprocess, "run", lambda *args, **kwargs: type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+    monkeypatch.setattr(setup, "detect_harnesses", lambda: {"Claude Code": False, "Codex": False, "OpenCode": True})
+
+    assert setup.main([]) == 0
+    saved = config.read_text()
+    assert "keep this setting" in saved
+    assert '"plugins"' in saved
+    assert "opencode-plugin" in saved
+
+
+def test_setup_follows_enmaas_opencode_wrapper_profile(monkeypatch, tmp_path):
+    wrapper = tmp_path / "opencode"
+    wrapper.write_text('XDG_CONFIG_HOME="${ENMAAS_OPENCODE_CONFIG_HOME:-$HOME/.config/opencode-enmaas}"\n')
+    monkeypatch.setattr(setup, "_which", lambda name: str(wrapper))
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        seen["env"] = kwargs.get("env")
+        return type("Result", (), {"returncode": 0, "stdout": str(tmp_path / "config"), "stderr": ""})()
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    assert setup._opencode_config_file() == tmp_path / "config" / "opencode.json"
+    assert seen["env"]["XDG_CONFIG_HOME"].endswith(".config/opencode-enmaas")

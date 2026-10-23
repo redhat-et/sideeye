@@ -59,6 +59,12 @@ CONTEXT_WINDOWS = {
 DEFAULT_CONTEXT_WINDOW = 200_000
 
 
+def _anthropic_base_url(base_url):
+    """Normalize a provider base URL before appending Anthropic API paths."""
+    base = (base_url or "").rstrip("/")
+    return base[:-3] if base.endswith("/v1") else base
+
+
 def context_window(model) -> int:
     """The judge model's input context window, in tokens."""
     return CONTEXT_WINDOWS.get(model, DEFAULT_CONTEXT_WINDOW)
@@ -257,7 +263,7 @@ def call_judge(base_url, api_key, body, timeout=60, user_agent=DEFAULT_USER_AGEN
     prob = judge_route_guard(base_url)
     if prob:
         raise ValueError(prob)
-    url = base_url.rstrip("/") + "/v1/messages"
+    url = _anthropic_base_url(base_url) + "/v1/messages"
     headers = {
         "x-api-key": api_key,
         "anthropic-version": ANTHROPIC_VERSION,
@@ -288,7 +294,7 @@ def count_tokens(base_url, api_key, body, timeout=30, user_agent=DEFAULT_USER_AG
     from a transient network error, instead of silently falling back."""
     if not base_url or not base_url.strip():
         return 0, False, "no judge base URL set (SIDEEYE_JUDGE_BASE_URL)"
-    url = base_url.rstrip("/") + "/v1/messages/count_tokens"
+    url = _anthropic_base_url(base_url) + "/v1/messages/count_tokens"
     headers = {
         "x-api-key": api_key,
         "anthropic-version": ANTHROPIC_VERSION,

@@ -37,7 +37,7 @@ sideeye setup
 Setup asks once for the judge credential, stores it in the Side-Eye config with
 mode 600, detects Claude Code, Codex, and OpenCode, and configures the bundled
 OpenCode plugin when Node/npm and a supported OpenCode config are available.
-It preserves unrelated JSON settings. It does not rewrite JSONC files.
+It preserves unrelated JSON and JSONC settings.
 
 Use `sideeye setup --no-opencode` to configure only the judge route.
 

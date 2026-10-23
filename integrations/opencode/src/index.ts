@@ -1,7 +1,6 @@
 import { existsSync, statSync } from "node:fs"
 import { dirname, isAbsolute, resolve } from "node:path"
 import { spawn } from "node:child_process"
-import { Plugin } from "@opencode/plugin"
 import type { CommandInvocation } from "@opencode/plugin/promise/command"
 import type { Context as ServerContext } from "@opencode/plugin/promise/plugin"
 
@@ -9,7 +8,7 @@ type AnyRecord = Record<string, any>
 
 const ABSOLUTE_PATH = /(?:\/(?:Users|home|workspace|private|tmp|var)\/)[^\s"'`]+/g
 
-export default Plugin.define({
+export default {
   id: "sideeye.opencode",
   async setup(ctx: ServerContext) {
     await ctx.command.transform((editor) => {
@@ -23,7 +22,7 @@ export default Plugin.define({
       })
     })
   },
-})
+}
 
 async function reviewSession(ctx: ServerContext, sessionID: string, commandText = ""): Promise<string> {
   try {
@@ -317,7 +316,12 @@ function runProcess(command: string, args: string[], cwd: string, input = ""): P
     child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString() })
     child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString() })
     child.on("error", reject)
-    child.stdin.on("error", (error: Error) => { stderr += `\n${error.message}` })
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+      // The bridge can reject before consuming stdin (for example when the
+      // judge route is missing). EPIPE is then expected and must not obscure
+      // the actionable Side-Eye error.
+      if (error.code !== "EPIPE") stderr += `\n${error.message}`
+    })
     child.on("close", (code: number | null) => resolveResult({ status: code ?? 1, stdout, stderr }))
     if (input) child.stdin.end(input)
     else child.stdin.end()
