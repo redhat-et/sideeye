@@ -12,3 +12,4 @@ path = "src/main.rs"
 clap = { version = "4", features = ["derive"] }
 serde_json = "1"
 sideeye-core = { path = "../sideeye-core" }
+sideeye-providers = { path = "../sideeye-providers" }

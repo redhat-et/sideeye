@@ -12,13 +12,16 @@ The workspace currently contains:
   validation and packet redaction.
 - `sideeye-providers` — the provider-neutral `JudgeProvider` trait and a
   deterministic fake provider for hermetic tests.
-- `sideeye-cli` — experimental `sideeye-rs doctor` and packet validation.
+- `sideeye-cli` — experimental `sideeye-rs doctor`, packet validation, and
+  `review` through the fake provider.
 
 Run it with:
 
 ```bash
 cargo run -p sideeye-cli -- doctor
 cargo run -p sideeye-cli -- validate packet.json
+cargo run -p sideeye-cli -- review --provider fake \
+  --fixture verdict.json packet.json
 ```
 
 The `doctor` command is intentionally offline. It resolves the same route chain
