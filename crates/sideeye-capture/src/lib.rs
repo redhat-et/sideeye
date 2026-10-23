@@ -6,6 +6,10 @@
 //! reasoning, system messages, compaction summaries, and synthetic messages are
 //! excluded so Side-Eye cannot review its own injected verdict.
 
+pub mod git_diff;
+
+pub use git_diff::{MAX_DIFF_CHARS, collect_diff_artifacts};
+
 use serde_json::Value;
 use sideeye_core::{
     Artifact, ContractError, GenerationUsage, REVIEW_PACKET_SCHEMA, ReviewPacket, Role, Turn,

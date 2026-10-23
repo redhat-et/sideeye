@@ -43,6 +43,15 @@ enum Command {
         /// Redact credential-shaped values before writing the packet.
         #[arg(long)]
         redact: bool,
+        /// Git repository root used to collect code evidence.
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// Git diff base for tracked files (default: HEAD).
+        #[arg(long, default_value = "HEAD")]
+        diff_base: String,
+        /// File touched by the session; repeat for each path.
+        #[arg(long = "touched-file")]
+        touched_files: Vec<String>,
     },
     /// Estimate input tokens and cost without calling the judge.
     Estimate {
@@ -103,7 +112,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::Packet {
             opencode_export,
             redact,
-        } => packet_from_opencode(opencode_export, redact),
+            repo,
+            diff_base,
+            touched_files,
+        } => packet_from_opencode(opencode_export, redact, repo, diff_base, touched_files),
         Command::Estimate {
             packet,
             base_url,
@@ -222,9 +234,16 @@ fn guard_self_grading(packet: &ReviewPacket, judge_model: &str) -> Result<(), St
 fn packet_from_opencode(
     export_path: PathBuf,
     redact: bool,
+    repo: Option<PathBuf>,
+    diff_base: String,
+    touched_files: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let export: serde_json::Value = serde_json::from_str(&read_input(export_path)?)?;
-    let packet = sideeye_capture::from_opencode_export(&export, Vec::new())?;
+    let artifacts = match repo {
+        Some(repo) => sideeye_capture::collect_diff_artifacts(&repo, &diff_base, &touched_files)?,
+        None => Vec::new(),
+    };
+    let packet = sideeye_capture::from_opencode_export(&export, artifacts)?;
     let packet = if redact { packet.redacted() } else { packet };
     packet.validate()?;
     println!("{}", serde_json::to_string(&packet)?);
