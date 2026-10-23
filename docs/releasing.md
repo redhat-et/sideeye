@@ -16,8 +16,9 @@ Releases produce four artifacts:
    - `.claude-plugin/marketplace.json`
    - `integrations/opencode/package.json`
    - Rust crate versions, if changed
-3. Commit the version bump.
-4. Tag and push:
+3. Run `python scripts/check_versions.py` to confirm every surface matches.
+4. Commit the version bump.
+5. Tag and push:
 
 ```bash
 git tag v0.4.0
