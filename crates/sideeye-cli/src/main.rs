@@ -8,6 +8,7 @@ use std::{
 use clap::{Parser, Subcommand};
 use serde_json::Value;
 use sideeye_core::ReviewPacket;
+use sideeye_providers::{FakeJudgeProvider, JudgeProvider};
 
 const AMBIENT_BASE_DEFAULT: &str = "https://api.anthropic.com";
 
@@ -34,6 +35,17 @@ enum Command {
         /// JSON packet path, or `-` for stdin.
         packet: PathBuf,
     },
+    /// Run a packet through a provider and emit a validated verdict.
+    Review {
+        /// JSON packet path, or `-` for stdin.
+        packet: PathBuf,
+        /// Provider to use. Only the deterministic fixture provider is enabled.
+        #[arg(long, default_value = "fake")]
+        provider: String,
+        /// Fixture verdict JSON. Required by the fake provider.
+        #[arg(long)]
+        fixture: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -50,6 +62,42 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
         Command::Doctor { base_url } => doctor(base_url),
         Command::Validate { packet } => validate(packet),
+        Command::Review {
+            packet,
+            provider,
+            fixture,
+        } => review(packet, provider, fixture),
+    }
+}
+
+fn review(
+    path: PathBuf,
+    provider_name: String,
+    fixture: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if provider_name != "fake" {
+        return Err(format!(
+            "provider {provider_name:?} is not implemented in this slice; use --provider fake"
+        )
+        .into());
+    }
+    let fixture = fixture.ok_or("--fixture is required for --provider fake")?;
+    let packet: ReviewPacket = serde_json::from_str(&read_input(path)?)?;
+    let fixture_verdict: sideeye_core::Verdict =
+        serde_json::from_str(&fs::read_to_string(fixture)?)?;
+    let provider = FakeJudgeProvider::new("fake", "fixture-judge", fixture_verdict);
+    let verdict = provider.judge(&packet)?;
+    println!("{}", serde_json::to_string(&verdict)?);
+    Ok(())
+}
+
+fn read_input(path: PathBuf) -> Result<String, Box<dyn std::error::Error>> {
+    if path.as_os_str() == "-" {
+        let mut input = String::new();
+        io::stdin().read_to_string(&mut input)?;
+        Ok(input)
+    } else {
+        Ok(fs::read_to_string(path)?)
     }
 }
 

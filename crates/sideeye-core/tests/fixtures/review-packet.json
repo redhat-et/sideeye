@@ -1,0 +1,32 @@
+{
+  "schema_version": "sideeye.review_packet.v1",
+  "packet_id": "packet-golden-1",
+  "session_id": "session-golden-1",
+  "source": "opencode",
+  "client": "opencode",
+  "generator_model": "openai/gpt-test",
+  "task": "Fix the parser",
+  "turns": [
+    {
+      "role": "user",
+      "text": "Fix the parser"
+    },
+    {
+      "role": "assistant",
+      "text": "I changed the parser and added a test."
+    }
+  ],
+  "artifacts": [
+    {
+      "kind": "git_diff",
+      "path": "parser.rs",
+      "content": "diff --git a/parser.rs b/parser.rs",
+      "complete": true
+    }
+  ],
+  "generation_usage": {
+    "input_tokens": 100,
+    "output_tokens": 20,
+    "total_tokens": 120
+  }
+}

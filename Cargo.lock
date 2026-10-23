@@ -234,6 +234,7 @@ dependencies = [
  "clap",
  "serde_json",
  "sideeye-core",
+ "sideeye-providers",
 ]
 
 [[package]]
