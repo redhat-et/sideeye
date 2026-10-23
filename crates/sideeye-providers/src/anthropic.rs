@@ -177,6 +177,7 @@ impl JudgeProvider for AnthropicProvider {
         packet.validate()?;
         let body = self.request_body(packet);
         let first = self.post(&body)?;
+        ensure_not_truncated(&first, self.max_tokens)?;
         let usage = Usage::from(&first);
         match parse_verdict(&first) {
             Ok(core) => Ok(self.finish(packet, core, usage)),
@@ -187,6 +188,7 @@ impl JudgeProvider for AnthropicProvider {
                     ))
                 })?;
                 let second = self.post(&retry)?;
+                ensure_not_truncated(&second, self.max_tokens)?;
                 let usage = usage + Usage::from(&second);
                 let core = parse_verdict(&second).map_err(|error| {
                     ProviderError::InvalidVerdict(format!(
@@ -275,6 +277,17 @@ struct CoreIssue {
     severity: IssueSeverity,
     #[serde(default)]
     evidence: Vec<String>,
+}
+
+/// A verdict cut off at `max_tokens` cannot be repaired by retrying: the same
+/// budget will truncate again. Fail with an actionable message instead.
+fn ensure_not_truncated(response: &Value, max_tokens: u32) -> Result<(), ProviderError> {
+    if response.get("stop_reason").and_then(Value::as_str) == Some("max_tokens") {
+        return Err(ProviderError::InvalidVerdict(format!(
+            "judge output was truncated at max_tokens={max_tokens}; raise --max-tokens"
+        )));
+    }
+    Ok(())
 }
 
 fn parse_verdict(response: &Value) -> Result<CoreVerdict, String> {
@@ -371,4 +384,43 @@ fn record_verdict_tool() -> Value {
             ],
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncation_is_reported_before_retry() {
+        let response = json!({"stop_reason": "max_tokens", "content": []});
+        let error = ensure_not_truncated(&response, 512).expect_err("must fail");
+        assert!(error.to_string().contains("truncated at max_tokens=512"));
+    }
+
+    #[test]
+    fn complete_response_passes_truncation_guard() {
+        let response = json!({"stop_reason": "tool_use", "content": []});
+        ensure_not_truncated(&response, 4096).expect("not truncated");
+    }
+
+    #[test]
+    fn parses_record_verdict_tool_input() {
+        let response = json!({
+            "content": [{
+                "type": "tool_use",
+                "name": "record_verdict",
+                "input": {
+                    "answered_what_was_asked": true,
+                    "correctness": "correct",
+                    "claims_supported": true,
+                    "score": 5,
+                    "issues": [],
+                    "overall_severity": "none",
+                    "summary": "ok"
+                }
+            }]
+        });
+        let verdict = parse_verdict(&response).expect("verdict");
+        assert_eq!(verdict.score, 5);
+    }
 }
