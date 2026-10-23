@@ -63,9 +63,9 @@ enum Command {
         /// Judge model id.
         #[arg(long, default_value = "claude-opus-4-8")]
         model: String,
-        /// Rubric file.
-        #[arg(long, default_value = "rubric/rubric_session_v2.md")]
-        rubric: PathBuf,
+        /// Rubric file (defaults to the embedded session rubric).
+        #[arg(long)]
+        rubric: Option<PathBuf>,
         /// Output token ceiling used for the cost estimate.
         #[arg(long, default_value_t = 4096)]
         max_tokens: u32,
@@ -86,9 +86,9 @@ enum Command {
         /// Judge model id (anthropic provider).
         #[arg(long, default_value = "claude-opus-4-8")]
         model: String,
-        /// Rubric file (anthropic provider).
-        #[arg(long, default_value = "rubric/rubric_session_v2.md")]
-        rubric: PathBuf,
+        /// Rubric file (defaults to the embedded session rubric).
+        #[arg(long)]
+        rubric: Option<PathBuf>,
         /// Output token ceiling (anthropic provider).
         #[arg(long, default_value_t = 4096)]
         max_tokens: u32,
@@ -144,7 +144,7 @@ fn review(
     fixture: Option<PathBuf>,
     base_url: Option<String>,
     model: String,
-    rubric: PathBuf,
+    rubric: Option<PathBuf>,
     max_tokens: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let packet: ReviewPacket = serde_json::from_str(&read_input(path)?)?;
@@ -157,7 +157,7 @@ fn review(
         }
         "anthropic" => {
             guard_self_grading(&packet, &model)?;
-            anthropic_provider(base_url, model, &rubric, max_tokens)?.judge(&packet)?
+            anthropic_provider(base_url, model, rubric.as_ref(), max_tokens)?.judge(&packet)?
         }
         other => {
             return Err(format!(
@@ -175,20 +175,23 @@ fn estimate(
     path: PathBuf,
     base_url: Option<String>,
     model: String,
-    rubric: PathBuf,
+    rubric: Option<PathBuf>,
     max_tokens: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let packet: ReviewPacket = serde_json::from_str(&read_input(path)?)?;
     guard_self_grading(&packet, &model)?;
-    let estimate = anthropic_provider(base_url, model, &rubric, max_tokens)?.estimate(&packet)?;
+    let estimate =
+        anthropic_provider(base_url, model, rubric.as_ref(), max_tokens)?.estimate(&packet)?;
     println!("{}", serde_json::to_string(&estimate)?);
     Ok(())
 }
 
+const EMBEDDED_RUBRIC: &str = include_str!("../../../rubric/rubric_session_v2.md");
+
 fn anthropic_provider(
     base_url: Option<String>,
     model: String,
-    rubric: &PathBuf,
+    rubric: Option<&PathBuf>,
     max_tokens: u32,
 ) -> Result<sideeye_providers::AnthropicProvider, Box<dyn std::error::Error>> {
     let config = load_judge_config();
@@ -200,13 +203,19 @@ fn anthropic_provider(
     validate_route(&route)?;
     let base = route.base.ok_or("no judge base URL configured")?;
     let key = route.key.ok_or("no judge credential configured")?;
-    let rubric_text = fs::read_to_string(rubric)
-        .map_err(|error| format!("cannot read rubric {}: {error}", rubric.display()))?;
-    let rubric_version = rubric
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("unknown")
-        .to_owned();
+    let (rubric_text, rubric_version) = match rubric {
+        Some(path) => {
+            let text = fs::read_to_string(path)
+                .map_err(|error| format!("cannot read rubric {}: {error}", path.display()))?;
+            let version = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("unknown")
+                .to_owned();
+            (text, version)
+        }
+        None => (EMBEDDED_RUBRIC.to_owned(), "rubric_session_v2".to_owned()),
+    };
     Ok(
         sideeye_providers::AnthropicProvider::new(base, key, model, rubric_text, rubric_version)
             .with_max_tokens(max_tokens),
