@@ -96,6 +96,7 @@ mod tests {
             }],
             artifacts: vec![],
             generation_usage: None,
+            generator_models: Vec::new(),
         }
     }
 
