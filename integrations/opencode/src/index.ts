@@ -46,6 +46,9 @@ export async function reviewExport(
     const repo = await findRepository(session, data, options.repo as string | undefined)
     const diffBase = await gitMergeBase(repo)
     const touchedFiles = await gitTouchedFiles(repo, diffBase, data)
+    if (options.engine === "rust") {
+      return reviewWithRust(repo, diffBase, touchedFiles, data, options, commandText)
+    }
     const wrapper = { repo, diff_base: diffBase, touched_files: touchedFiles, data }
     const command = Array.isArray(options.command) ? options.command : [options.command ?? "sideeye"]
     const estimate = await run(command[0], [
@@ -72,6 +75,52 @@ export async function reviewExport(
   } catch (error) {
     return `Side-Eye review could not start: ${error instanceof Error ? error.message : String(error)}`
   }
+}
+
+async function reviewWithRust(
+  repo: string,
+  diffBase: string,
+  touchedFiles: AnyRecord[],
+  data: AnyRecord,
+  options: AnyRecord,
+  commandText: string,
+): Promise<string> {
+  const rust = Array.isArray(options.rust) ? options.rust : [options.rust ?? "sideeye-rs"]
+  const model = typeof options.model === "string" ? options.model : "claude-opus-4-8"
+  const maxTokens = Number.isInteger(options.maxTokens) ? String(options.maxTokens) : "2048"
+  const args = [...rust.slice(1)]
+  const touched = touchedFiles.flatMap((file) => ["--touched-file", String(file.path)])
+  const packetRun = await run(rust[0], [
+    ...args, "packet", "--opencode-export", "-", "--redact",
+    "--repo", repo, "--diff-base", diffBase, ...touched,
+  ], JSON.stringify(data), repo)
+  if (packetRun.code !== 0) {
+    return `Side-Eye packet build failed before producing a verdict.\n\n${packetRun.stderr || packetRun.stdout}`
+  }
+  const packet = lastJsonObject(packetRun.stdout)
+  if (!packet) return `Side-Eye returned no packet.\n\n${packetRun.stdout}`
+  const packetJson = JSON.stringify(packet)
+
+  const estimate = await run(rust[0], [
+    ...args, "estimate", "-", "--model", model, "--max-tokens", maxTokens,
+  ], packetJson, repo)
+  if (estimate.code !== 0) {
+    return `Side-Eye estimate failed before producing a verdict.\n\n${estimate.stderr || estimate.stdout}`
+  }
+  const estimateRecord = lastJsonObject(estimate.stdout)
+  if (!estimateRecord) return `Side-Eye returned no structured estimate.\n\n${estimate.stdout}`
+  if (!/\B--confirm\b/.test(commandText)) return formatEstimate(estimateRecord)
+
+  const out = await run(rust[0], [
+    ...args, "review", "-", "--provider", "anthropic",
+    "--model", model, "--max-tokens", maxTokens,
+  ], packetJson, repo)
+  if (out.code !== 0) {
+    return `Side-Eye review failed before producing a verdict.\n\n${out.stderr || out.stdout}`
+  }
+  const record = lastJsonLine(out.stdout)
+  if (!record) return `Side-Eye returned no structured verdict.\n\n${out.stdout}`
+  return `Side-Eye verdict (raw structured record):\n${JSON.stringify(record, null, 2)}`
 }
 
 function contextToExport(sessionID: string, context: unknown): AnyRecord {
@@ -174,8 +223,8 @@ function formatEstimate(estimate: AnyRecord): string {
   return [
     "Side-Eye estimate (no judge call made):",
     `  estimated cost: $${Number(estimate.estimated_cost_usd ?? 0).toFixed(4)}`,
-    `  input tokens: ${estimate.input_tokens ?? "unknown"}${estimate.exact ? "" : " (estimated)"}`,
-    `  code: ${estimate.adapter_version ?? "unknown"}`,
+    `  input tokens: ${estimate.input_tokens ?? "unknown"}${estimate.exact === false ? " (estimated)" : ""}`,
+    `  code: ${estimate.adapter_version ?? (estimate.max_tokens ? `rust (max ${estimate.max_tokens} output tokens)` : "unknown")}`,
     "",
     "Run /sideeye --confirm to submit this packet to the judge.",
   ].join("\n")
@@ -278,6 +327,18 @@ async function gitTouchedFiles(repo: string, diffBase: string, exportData: AnyRe
     files.add(path)
   }
   return [...files].sort().map((path) => ({ path, count: 1 }))
+}
+
+function lastJsonObject(output: string): AnyRecord | undefined {
+  for (const line of output.trim().split("\n").reverse()) {
+    try {
+      const value = JSON.parse(line)
+      if (value && typeof value === "object" && !Array.isArray(value)) return value
+    } catch {
+      // Progress lines are not JSON.
+    }
+  }
+  return undefined
 }
 
 function lastJsonLine(output: string): AnyRecord | undefined {

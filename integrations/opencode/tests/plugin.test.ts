@@ -87,6 +87,56 @@ test("review export estimates first and requires explicit confirmation", async (
   assert.match(verdict, /fixture verdict/)
 })
 
+test("rust engine builds a packet, estimates, then reviews on confirm", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-rust-"))
+  const repo = join(workspace, "project")
+  mkdirSync(repo)
+  git(repo, ["init", "-q"])
+  git(repo, ["config", "user.email", "test@example.invalid"])
+  git(repo, ["config", "user.name", "Side-Eye Test"])
+  const file = join(repo, "answer.txt")
+  writeFile(file, "before\n")
+  git(repo, ["add", "answer.txt"])
+  git(repo, ["commit", "-qm", "initial"])
+  writeFile(file, "after\n")
+
+  const engine = join(workspace, "fake-rust.mjs")
+  writeFile(engine, [
+    "let input='';",
+    "process.stdin.on('data', (chunk) => input += chunk);",
+    "process.stdin.on('end', () => {",
+    "  const command = process.argv[2];",
+    "  const payload = command === 'packet' ? {",
+    "    schema_version: 'sideeye.review_packet.v1', packet_id: 'p', session_id: 's',",
+    "    source: 'opencode', client: 'opencode', generator_model: 'g', task: 'task',",
+    "    turns: [{role: 'user', text: 'task'}], artifacts: [], generation_usage: null",
+    "  } : command === 'estimate' ? {",
+    "    input_tokens: 10, estimated_cost_usd: 0.01, model: 'claude-opus-4-8', max_tokens: 2048",
+    "  } : { score: 5, correctness: 'correct', claims_supported: true, summary: 'rust fixture verdict' };",
+    "  process.stdout.write(JSON.stringify(payload) + '\\n');",
+    "});",
+  ].join("\n"))
+
+  const session = {location: {directory: repo}}
+  const data = {
+    info: {id: "ses-rust", model: {providerID: "openai", id: "gpt-test"}},
+    messages: [
+      {type: "user", text: "task"},
+      {type: "assistant", model: {providerID: "openai", id: "gpt-test"}, content: [
+        {type: "tool", name: "read", state: {status: "completed", input: {path: file}, content: [{type: "text", text: "answer"}]}},
+      ]},
+    ],
+  }
+  const options = {engine: "rust", rust: [process.execPath, engine]}
+
+  const estimate = await testHelpers.reviewExport(session, data, options)
+  assert.match(estimate, /estimate \(no judge call made\)/i)
+  assert.match(estimate, /rust \(max 2048 output tokens\)/)
+
+  const verdict = await testHelpers.reviewExport(session, data, options, "--confirm")
+  assert.match(verdict, /rust fixture verdict/)
+})
+
 test("server command path accepts recorded SessionMessageInfo[] data", async () => {
   const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-server-"))
   const repo = join(workspace, "project")

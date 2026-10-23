@@ -275,6 +275,12 @@ def _install_opencode_plugin() -> tuple[str, pathlib.Path | None]:
 
     config_path_value = _opencode_config_file()
     command_options = {"command": [_which("sideeye") or "sideeye"]}
+    rust = _which("sideeye-rs")
+    if rust:
+        # Prefer the native engine when it is installed. Python remains the
+        # fallback for users who only have the Python package.
+        command_options["engine"] = "rust"
+        command_options["rust"] = [rust]
     repository = _git_root()
     if repository:
         command_options["repo"] = str(repository)
