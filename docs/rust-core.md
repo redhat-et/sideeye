@@ -26,7 +26,12 @@ cargo run -p sideeye-cli -- review --provider fake \
 cargo run -p sideeye-cli -- review packet.json --provider anthropic \
   --model claude-opus-4-8 --rubric rubric/rubric_session_v2.md
 cargo run -p sideeye-cli -- packet --opencode-export export.json --redact
+cargo run -p sideeye-cli -- estimate packet.json --model claude-opus-4-8
 ```
+
+`estimate` calls the free `count_tokens` endpoint and never the judge. Both
+`estimate` and `review` refuse a judge model that also generated turns in the
+packet, preventing self-grading.
 
 The `doctor` command is intentionally offline. It resolves the same route chain
 as the Python oracle: `--base-url`, `SIDEEYE_JUDGE_*`,
