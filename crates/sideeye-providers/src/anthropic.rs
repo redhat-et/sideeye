@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sideeye_core::{
     Correctness, IssueSeverity, ReviewPacket, Role, Severity, VERDICT_SCHEMA, Verdict, VerdictIssue,
@@ -27,6 +27,15 @@ const FORBIDDEN_ROUTES: &[(&str, &str)] = &[
     ("localhost:818", "the local GLM gateway"),
     ("ai-gateway-qwen", "the dogfood Qwen route"),
 ];
+
+/// Pre-spend estimate from the free count_tokens endpoint.
+#[derive(Debug, Clone, Serialize)]
+pub struct Estimate {
+    pub input_tokens: u64,
+    pub estimated_cost_usd: f64,
+    pub model: String,
+    pub max_tokens: u32,
+}
 
 pub struct AnthropicProvider {
     base_url: String,
@@ -106,8 +115,43 @@ impl AnthropicProvider {
         })
     }
 
+    /// Exact input token count for a packet. This is the free count_tokens
+    /// endpoint, so it can run before the user confirms spend.
+    pub fn count_tokens(&self, packet: &ReviewPacket) -> Result<u64, ProviderError> {
+        packet.validate()?;
+        let mut body = self.request_body(packet);
+        if let Some(object) = body.as_object_mut() {
+            object.remove("max_tokens");
+        }
+        let response = self.post_path("/v1/messages/count_tokens", &body)?;
+        response
+            .get("input_tokens")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                ProviderError::Network("count_tokens returned no input_tokens".to_owned())
+            })
+    }
+
+    /// Estimate cost before judging. Output is bounded by `max_tokens` and is
+    /// labeled an estimate, matching the Python oracle.
+    pub fn estimate(&self, packet: &ReviewPacket) -> Result<Estimate, ProviderError> {
+        let input_tokens = self.count_tokens(packet)?;
+        let (input_price, output_price) = pricing(&self.model);
+        let cost = input_tokens as f64 * input_price + self.max_tokens as f64 * output_price;
+        Ok(Estimate {
+            input_tokens,
+            estimated_cost_usd: (cost * 1_000_000.0).round() / 1_000_000.0,
+            model: self.model.clone(),
+            max_tokens: self.max_tokens,
+        })
+    }
+
     fn post(&self, body: &Value) -> Result<Value, ProviderError> {
-        let url = self.endpoint("/v1/messages")?;
+        self.post_path("/v1/messages", body)
+    }
+
+    fn post_path(&self, path: &str, body: &Value) -> Result<Value, ProviderError> {
+        let url = self.endpoint(path)?;
         let response = ureq::post(&url)
             .set("x-api-key", &self.api_key)
             .set("anthropic-version", ANTHROPIC_VERSION)

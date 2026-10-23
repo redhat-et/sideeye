@@ -44,6 +44,23 @@ enum Command {
         #[arg(long)]
         redact: bool,
     },
+    /// Estimate input tokens and cost without calling the judge.
+    Estimate {
+        /// JSON packet path, or `-` for stdin.
+        packet: PathBuf,
+        /// Judge base URL override.
+        #[arg(long)]
+        base_url: Option<String>,
+        /// Judge model id.
+        #[arg(long, default_value = "claude-opus-4-8")]
+        model: String,
+        /// Rubric file.
+        #[arg(long, default_value = "rubric/rubric_session_v2.md")]
+        rubric: PathBuf,
+        /// Output token ceiling used for the cost estimate.
+        #[arg(long, default_value_t = 4096)]
+        max_tokens: u32,
+    },
     /// Run a packet through a provider and emit a validated verdict.
     Review {
         /// JSON packet path, or `-` for stdin.
@@ -87,6 +104,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             opencode_export,
             redact,
         } => packet_from_opencode(opencode_export, redact),
+        Command::Estimate {
+            packet,
+            base_url,
+            model,
+            rubric,
+            max_tokens,
+        } => estimate(packet, base_url, model, rubric, max_tokens),
         Command::Review {
             packet,
             provider,
@@ -120,25 +144,8 @@ fn review(
             FakeJudgeProvider::new("fake", "fixture-judge", fixture_verdict).judge(&packet)?
         }
         "anthropic" => {
-            let config = load_judge_config();
-            let mut route = resolve_judge_route(&config);
-            if base_url.is_some() {
-                route.base = base_url;
-                route.source = Some("flag");
-            }
-            validate_route(&route)?;
-            let base = route.base.ok_or("no judge base URL configured")?;
-            let key = route.key.ok_or("no judge credential configured")?;
-            let rubric_text = fs::read_to_string(&rubric)
-                .map_err(|error| format!("cannot read rubric {}: {error}", rubric.display()))?;
-            let rubric_version = rubric
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or("unknown")
-                .to_owned();
-            sideeye_providers::AnthropicProvider::new(base, key, model, rubric_text, rubric_version)
-                .with_max_tokens(max_tokens)
-                .judge(&packet)?
+            guard_self_grading(&packet, &model)?;
+            anthropic_provider(base_url, model, &rubric, max_tokens)?.judge(&packet)?
         }
         other => {
             return Err(format!(
@@ -149,6 +156,66 @@ fn review(
     };
     verdict.validate()?;
     println!("{}", serde_json::to_string(&verdict)?);
+    Ok(())
+}
+
+fn estimate(
+    path: PathBuf,
+    base_url: Option<String>,
+    model: String,
+    rubric: PathBuf,
+    max_tokens: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let packet: ReviewPacket = serde_json::from_str(&read_input(path)?)?;
+    guard_self_grading(&packet, &model)?;
+    let estimate = anthropic_provider(base_url, model, &rubric, max_tokens)?.estimate(&packet)?;
+    println!("{}", serde_json::to_string(&estimate)?);
+    Ok(())
+}
+
+fn anthropic_provider(
+    base_url: Option<String>,
+    model: String,
+    rubric: &PathBuf,
+    max_tokens: u32,
+) -> Result<sideeye_providers::AnthropicProvider, Box<dyn std::error::Error>> {
+    let config = load_judge_config();
+    let mut route = resolve_judge_route(&config);
+    if base_url.is_some() {
+        route.base = base_url;
+        route.source = Some("flag");
+    }
+    validate_route(&route)?;
+    let base = route.base.ok_or("no judge base URL configured")?;
+    let key = route.key.ok_or("no judge credential configured")?;
+    let rubric_text = fs::read_to_string(rubric)
+        .map_err(|error| format!("cannot read rubric {}: {error}", rubric.display()))?;
+    let rubric_version = rubric
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("unknown")
+        .to_owned();
+    Ok(
+        sideeye_providers::AnthropicProvider::new(base, key, model, rubric_text, rubric_version)
+            .with_max_tokens(max_tokens),
+    )
+}
+
+/// Refuse a judge that generated any turn in the packet. A model grading its
+/// own output is the failure Side-Eye exists to catch.
+fn guard_self_grading(packet: &ReviewPacket, judge_model: &str) -> Result<(), String> {
+    let family = |model: &str| model.rsplit('/').next().unwrap_or(model).to_lowercase();
+    let judge = family(judge_model);
+    if let Some(generator) = packet.generator_models.iter().find(|model| {
+        let model = family(model);
+        model == judge
+            || model.starts_with(&format!("{judge}-"))
+            || judge.starts_with(&format!("{model}-"))
+    }) {
+        return Err(format!(
+            "judge model {judge_model:?} also generated turns in this packet ({generator}); choose a different judge to avoid self-grading"
+        ));
+    }
     Ok(())
 }
 
@@ -436,6 +503,28 @@ mod tests {
             &JudgeConfig::default(),
         );
         assert!(validate_route(&route).is_ok());
+    }
+
+    #[test]
+    fn self_grading_guard_rejects_same_model_family() {
+        let packet = ReviewPacket {
+            schema_version: sideeye_core::REVIEW_PACKET_SCHEMA.to_owned(),
+            packet_id: "p".to_owned(),
+            session_id: "s".to_owned(),
+            source: "opencode".to_owned(),
+            client: "opencode".to_owned(),
+            generator_model: Some("anthropic/claude-opus-4-8".to_owned()),
+            task: "task".to_owned(),
+            turns: vec![sideeye_core::Turn {
+                role: sideeye_core::Role::User,
+                text: "task".to_owned(),
+            }],
+            artifacts: vec![],
+            generation_usage: None,
+            generator_models: vec!["anthropic/claude-opus-4-8".to_owned()],
+        };
+        assert!(guard_self_grading(&packet, "claude-opus-4-8").is_err());
+        assert!(guard_self_grading(&packet, "claude-sonnet-5").is_ok());
     }
 
     #[test]

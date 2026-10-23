@@ -9,7 +9,7 @@ use thiserror::Error;
 
 mod anthropic;
 
-pub use anthropic::AnthropicProvider;
+pub use anthropic::{AnthropicProvider, Estimate};
 
 pub trait JudgeProvider {
     fn provider_name(&self) -> &str;
