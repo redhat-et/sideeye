@@ -100,6 +100,7 @@ mod tests {
                 complete: true,
             }],
             generation_usage: None,
+            generator_models: Vec::new(),
         };
         let redacted = packet.redacted();
         assert_eq!(redacted.packet_id, packet.packet_id);

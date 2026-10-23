@@ -35,6 +35,15 @@ enum Command {
         /// JSON packet path, or `-` for stdin.
         packet: PathBuf,
     },
+    /// Convert an OpenCode V2 export into a ReviewPacket.
+    Packet {
+        /// OpenCode export JSON, or `-` for stdin.
+        #[arg(long)]
+        opencode_export: PathBuf,
+        /// Redact credential-shaped values before writing the packet.
+        #[arg(long)]
+        redact: bool,
+    },
     /// Run a packet through a provider and emit a validated verdict.
     Review {
         /// JSON packet path, or `-` for stdin.
@@ -74,6 +83,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
         Command::Doctor { base_url } => doctor(base_url),
         Command::Validate { packet } => validate(packet),
+        Command::Packet {
+            opencode_export,
+            redact,
+        } => packet_from_opencode(opencode_export, redact),
         Command::Review {
             packet,
             provider,
@@ -136,6 +149,18 @@ fn review(
     };
     verdict.validate()?;
     println!("{}", serde_json::to_string(&verdict)?);
+    Ok(())
+}
+
+fn packet_from_opencode(
+    export_path: PathBuf,
+    redact: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let export: serde_json::Value = serde_json::from_str(&read_input(export_path)?)?;
+    let packet = sideeye_capture::from_opencode_export(&export, Vec::new())?;
+    let packet = if redact { packet.redacted() } else { packet };
+    packet.validate()?;
+    println!("{}", serde_json::to_string(&packet)?);
     Ok(())
 }
 

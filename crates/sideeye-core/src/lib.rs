@@ -66,6 +66,10 @@ pub struct ReviewPacket {
     pub turns: Vec<Turn>,
     pub artifacts: Vec<Artifact>,
     pub generation_usage: Option<GenerationUsage>,
+    /// Distinct model ids observed in per-turn metadata. This is what lets the
+    /// engine refuse a judge that generated part of the session.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generator_models: Vec<String>,
 }
 
 impl ReviewPacket {
@@ -248,6 +252,7 @@ mod tests {
                 complete: true,
             }],
             generation_usage: None,
+            generator_models: Vec::new(),
         }
     }
 
