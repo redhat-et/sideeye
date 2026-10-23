@@ -1,8 +1,13 @@
 {
   "name": "@redhat-et/sideeye-opencode",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "type": "module",
-  "files": ["dist", "server.js", "tui.js", "README.md"],
+  "files": [
+    "dist",
+    "server.js",
+    "tui.js",
+    "README.md"
+  ],
   "exports": {
     ".": "./dist/index.js",
     "./tui": "./dist/tui.js"
