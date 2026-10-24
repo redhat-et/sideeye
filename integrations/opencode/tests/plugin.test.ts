@@ -143,7 +143,7 @@ test("rust engine builds a packet, estimates, then reviews on confirm", async ()
     "    turns: [{role: 'user', text: 'task'}], artifacts: [], generation_usage: null",
     "  } : command === 'estimate' ? {",
     "    input_tokens: 10, estimated_cost_usd: 0.01, model: 'claude-opus-4-8', max_tokens: 2048",
-    "  } : { score: 5, correctness: 'correct', claims_supported: true, summary: 'rust fixture verdict' };",
+    "  } : { score: 5, correctness: 'correct', claims_supported: true, summary: 'rust fixture verdict ' + process.argv.slice(2).join(' ') };",
     "  process.stdout.write(JSON.stringify(payload) + '\\n');",
     "});",
   ].join("\n"))
@@ -164,8 +164,9 @@ test("rust engine builds a packet, estimates, then reviews on confirm", async ()
   assert.match(estimate, /estimate \(no judge call made\)/i)
   assert.match(estimate, /rust \(max 2048 output tokens\)/)
 
-  const verdict = await testHelpers.reviewExport(session, data, options, "--confirm")
+  const verdict = await testHelpers.reviewExport(session, data, options, "focus on security --confirm")
   assert.match(verdict, /rust fixture verdict/)
+  assert.match(verdict, /--instructions focus on security/)
 })
 
 test("server command path accepts recorded SessionMessageInfo[] data", async () => {

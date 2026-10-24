@@ -46,8 +46,12 @@ export async function reviewExport(
     const repo = await findRepository(session, data, options.repo as string | undefined)
     const diffBase = await gitMergeBase(repo)
     const touchedFiles = await gitTouchedFiles(repo, diffBase, data)
+    const { confirm, instructions } = parseCommand(commandText)
     if (options.engine === "rust") {
-      return reviewWithRust(repo, diffBase, touchedFiles, data, options, commandText)
+      return reviewWithRust(repo, diffBase, touchedFiles, data, options, confirm, instructions)
+    }
+    if (instructions) {
+      return "Focus instructions require the Rust engine (`engine: rust`). Re-run `sideeye setup` with `sideeye-rs` on PATH."
     }
     const wrapper = { repo, diff_base: diffBase, touched_files: touchedFiles, data }
     const command = Array.isArray(options.command) ? options.command : [options.command ?? "sideeye"]
@@ -60,7 +64,7 @@ export async function reviewExport(
     }
     const estimateRecord = lastJsonLine(estimate.stdout)
     if (!estimateRecord) return `Side-Eye returned no structured estimate.\n\n${estimate.stdout}`
-    if (!/\B--confirm\b/.test(commandText)) return formatEstimate(estimateRecord)
+    if (!confirm) return formatEstimate(estimateRecord)
 
     const out = await run(command[0], [
       ...command.slice(1), "review", "--opencode-export", "-", "--yes", "--json",
@@ -83,12 +87,14 @@ async function reviewWithRust(
   touchedFiles: AnyRecord[],
   data: AnyRecord,
   options: AnyRecord,
-  commandText: string,
+  confirm: boolean,
+  instructions: string,
 ): Promise<string> {
   const rust = Array.isArray(options.rust) ? options.rust : [options.rust ?? "sideeye-rs"]
   const model = typeof options.model === "string" ? options.model : "claude-opus-4-8"
   const maxTokens = Number.isInteger(options.maxTokens) ? String(options.maxTokens) : "2048"
   const args = [...rust.slice(1)]
+  const focus = instructions ? ["--instructions", instructions] : []
   const touched = touchedFiles.flatMap((file) => ["--touched-file", String(file.path)])
   const packetRun = await run(rust[0], [
     ...args, "packet", "--opencode-export", "-", "--redact",
@@ -102,18 +108,18 @@ async function reviewWithRust(
   const packetJson = JSON.stringify(packet)
 
   const estimate = await run(rust[0], [
-    ...args, "estimate", "-", "--model", model, "--max-tokens", maxTokens,
+    ...args, "estimate", "-", "--model", model, "--max-tokens", maxTokens, ...focus,
   ], packetJson, repo)
   if (estimate.code !== 0) {
     return `Side-Eye estimate failed before producing a verdict.\n\n${estimate.stderr || estimate.stdout}`
   }
   const estimateRecord = lastJsonObject(estimate.stdout)
   if (!estimateRecord) return `Side-Eye returned no structured estimate.\n\n${estimate.stdout}`
-  if (!/\B--confirm\b/.test(commandText)) return formatEstimate(estimateRecord)
+  if (!confirm) return formatEstimate(estimateRecord, instructions)
 
   const out = await run(rust[0], [
     ...args, "review", "-", "--provider", "anthropic",
-    "--model", model, "--max-tokens", maxTokens,
+    "--model", model, "--max-tokens", maxTokens, ...focus,
   ], packetJson, repo)
   if (out.code !== 0) {
     return `Side-Eye review failed before producing a verdict.\n\n${out.stderr || out.stdout}`
@@ -219,15 +225,22 @@ function resultText(result: AnyRecord | undefined): string {
   return JSON.stringify(result)
 }
 
-function formatEstimate(estimate: AnyRecord): string {
+function formatEstimate(estimate: AnyRecord, instructions = ""): string {
   return [
     "Side-Eye estimate (no judge call made):",
     `  estimated cost: $${Number(estimate.estimated_cost_usd ?? 0).toFixed(4)}`,
     `  input tokens: ${estimate.input_tokens ?? "unknown"}${estimate.exact === false ? " (estimated)" : ""}`,
     `  code: ${estimate.adapter_version ?? (estimate.max_tokens ? `rust (max ${estimate.max_tokens} output tokens)` : "unknown")}`,
+    ...(instructions ? [`  focus: ${instructions}`] : []),
     "",
-    "Run /sideeye --confirm to submit this packet to the judge.",
+    `Run /sideeye --confirm${instructions ? ` ${instructions}` : ""} to submit this packet to the judge.`,
   ].join("\n")
+}
+
+function parseCommand(commandText: string): {confirm: boolean; instructions: string} {
+  const confirm = /\B--confirm\b/.test(commandText)
+  const instructions = commandText.replace(/\B--confirm\b/g, "").trim()
+  return {confirm, instructions}
 }
 
 async function findRepository(session: AnyRecord, exportData: AnyRecord, configured?: string): Promise<string> {

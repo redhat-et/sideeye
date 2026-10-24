@@ -271,66 +271,43 @@ def _last_object_close(text: str) -> int | None:
 
 
 def _json_key_index(text: str, key: str) -> int | None:
-    """Find a top-level-ish JSON key outside comments and strings."""
-    in_string = False
-    escaped = False
-    in_line = False
-    in_block = False
+    """Find a JSON object key outside comments and strings."""
     index = 0
     while index < len(text):
         char = text[index]
         following = text[index + 1] if index + 1 < len(text) else ""
-        if in_line:
-            if char == "\n":
-                in_line = False
-            index += 1
-            continue
-        if in_block:
-            if char == "*" and following == "/":
-                in_block = False
-                index += 2
-                continue
-            index += 1
-            continue
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            index += 1
-            continue
         if char == "/" and following == "/":
-            in_line = True
-            index += 2
+            newline = text.find("\n", index + 2)
+            index = len(text) if newline < 0 else newline + 1
             continue
         if char == "/" and following == "*":
-            in_block = True
-            index += 2
+            end_comment = text.find("*/", index + 2)
+            index = len(text) if end_comment < 0 else end_comment + 2
             continue
-        if char == '"':
-            start = index
+        if char != '"':
             index += 1
-            value = []
-            while index < len(text):
-                current = text[index]
-                if current == "\\" and index + 1 < len(text):
-                    value.append(text[index + 1])
-                    index += 2
-                    continue
-                if current == '"':
-                    break
-                value.append(current)
-                index += 1
-            if "".join(value) == key:
-                rest = index + 1
-                while rest < len(text) and text[rest].isspace():
-                    rest += 1
-                if rest < len(text) and text[rest] == ":":
-                    return start
             continue
+        start = index
         index += 1
+        value = []
+        while index < len(text):
+            current = text[index]
+            if current == "\\" and index + 1 < len(text):
+                value.append(text[index + 1])
+                index += 2
+                continue
+            if current == '"':
+                index += 1
+                break
+            value.append(current)
+            index += 1
+        if "".join(value) != key:
+            continue
+        rest = index
+        while rest < len(text) and text[rest].isspace():
+            rest += 1
+        if rest < len(text) and text[rest] == ":":
+            return start
     return None
 
 

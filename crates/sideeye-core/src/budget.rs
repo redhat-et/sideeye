@@ -6,6 +6,8 @@
 //! within a character budget. Dropped content is marked in-band so the judge
 //! knows its view is partial.
 
+use std::cmp::Reverse;
+
 use crate::{Artifact, ReviewPacket, Role, Turn};
 
 const USER_TURN_CAP: usize = 8_000;
@@ -34,7 +36,10 @@ impl ReviewPacket {
         }
 
         let artifact_budget = (max_chars / 4).min(120_000);
-        let transcript_budget = max_chars.saturating_sub(artifact_budget);
+        // Reserve room for elision markers and the trailing budget note.
+        let transcript_budget = max_chars
+            .saturating_sub(artifact_budget)
+            .saturating_sub(1_024);
         let mut budgeted = self.clone();
         budgeted.artifacts = budget_artifacts(&self.artifacts, artifact_budget);
         let (turns, trimmed) = budget_turns(&self.turns, transcript_budget);
@@ -131,13 +136,17 @@ fn budget_turns(turns: &[Turn], budget: usize) -> (Vec<Turn>, bool) {
     // Add remaining turns newest-first by salience: tool evidence, then
     // assistant narration, then system notes.
     let mut order: Vec<usize> = (0..turns.len()).filter(|index| !selected[*index]).collect();
-    order.sort_by_key(|index| match turns[*index].role {
-        Role::Tool => 0,
-        Role::Assistant => 1,
-        Role::System => 2,
-        Role::User => 3,
+    // Newest-first within each salience tier: tool evidence, then assistant
+    // narration, then system notes.
+    order.sort_by_key(|index| {
+        let tier = match turns[*index].role {
+            Role::Tool => 0,
+            Role::Assistant => 1,
+            Role::System => 2,
+            Role::User => 3,
+        };
+        (tier, Reverse(*index))
     });
-    order.reverse();
     for index in order {
         let cost = capped[index].0.len();
         if used + cost > budget {
