@@ -6,6 +6,9 @@ path. On demand, `/sideeye:ask` sends the session you're in (or part of it) to
 the strong judge for an independent second opinion. The scoreboard answers
 *"how much can we save at held quality?"*
 (Pitch: [`docs/judge-sampling-pitch.md`](docs/judge-sampling-pitch.md).)
+Want the 60-second version? Open
+[`docs/sideeye-demo.html`](docs/sideeye-demo.html) in a browser.
+
 
 ## Install (Claude Code)
 
