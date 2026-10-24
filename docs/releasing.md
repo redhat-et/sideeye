@@ -16,7 +16,8 @@ Releases produce four artifacts:
    - `.claude-plugin/marketplace.json`
    - `integrations/opencode/package.json`
    - Rust crate versions, if changed
-3. Run `python scripts/check_versions.py` to confirm every surface matches.
+3. Run `python scripts/check_versions.py` and `python scripts/check_demo.py`
+   to confirm every surface and the demo page match.
 4. Commit the version bump.
 5. Tag and push:
 
