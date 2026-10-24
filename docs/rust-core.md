@@ -29,6 +29,8 @@ cargo run -p sideeye-cli -- packet --opencode-export export.json --redact
 cargo run -p sideeye-cli -- packet --opencode-export export.json --redact \
   --repo /path/to/repo --touched-file src/parser.rs --diff-base HEAD
 cargo run -p sideeye-cli -- estimate packet.json --model claude-opus-4-8
+cargo run -p sideeye-cli -- review packet.json --provider anthropic \
+  --instructions "focus on security vulnerabilities and missing tests"
 ```
 
 Passing `--repo` and one or more `--touched-file` values adds a `git_diff`

@@ -72,6 +72,9 @@ enum Command {
         /// Output token ceiling used for the cost estimate.
         #[arg(long, default_value_t = 4096)]
         max_tokens: u32,
+        /// Extra focus for the judge, e.g. "security vulnerabilities".
+        #[arg(long)]
+        instructions: Option<String>,
     },
     /// Run a packet through a provider and emit a validated verdict.
     Review {
@@ -95,6 +98,9 @@ enum Command {
         /// Output token ceiling (anthropic provider).
         #[arg(long, default_value_t = 4096)]
         max_tokens: u32,
+        /// Extra focus for the judge, e.g. "security vulnerabilities".
+        #[arg(long)]
+        instructions: Option<String>,
     },
 }
 
@@ -133,7 +139,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             model,
             rubric,
             max_tokens,
-        } => estimate(packet, base_url, model, rubric, max_tokens),
+            instructions,
+        } => estimate(packet, base_url, model, rubric, max_tokens, instructions),
         Command::Review {
             packet,
             provider,
@@ -142,8 +149,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             model,
             rubric,
             max_tokens,
+            instructions,
         } => review(
-            packet, provider, fixture, base_url, model, rubric, max_tokens,
+            packet,
+            provider,
+            fixture,
+            base_url,
+            model,
+            rubric,
+            max_tokens,
+            instructions,
         ),
     }
 }
@@ -157,6 +172,7 @@ fn review(
     model: String,
     rubric: Option<PathBuf>,
     max_tokens: u32,
+    instructions: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let packet: ReviewPacket = serde_json::from_str(&read_input(path)?)?;
     let packet = packet.redacted();
@@ -169,7 +185,8 @@ fn review(
         }
         "anthropic" => {
             guard_self_grading(&packet, &model)?;
-            anthropic_provider(base_url, model, rubric.as_ref(), max_tokens)?.judge(&packet)?
+            anthropic_provider(base_url, model, rubric.as_ref(), max_tokens, instructions)?
+                .judge(&packet)?
         }
         other => {
             return Err(format!(
@@ -189,11 +206,13 @@ fn estimate(
     model: String,
     rubric: Option<PathBuf>,
     max_tokens: u32,
+    instructions: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let packet: ReviewPacket = serde_json::from_str(&read_input(path)?)?;
+    let packet = packet.redacted();
     guard_self_grading(&packet, &model)?;
-    let estimate =
-        anthropic_provider(base_url, model, rubric.as_ref(), max_tokens)?.estimate(&packet)?;
+    let estimate = anthropic_provider(base_url, model, rubric.as_ref(), max_tokens, instructions)?
+        .estimate(&packet)?;
     println!("{}", serde_json::to_string(&estimate)?);
     Ok(())
 }
@@ -205,6 +224,7 @@ fn anthropic_provider(
     model: String,
     rubric: Option<&PathBuf>,
     max_tokens: u32,
+    instructions: Option<String>,
 ) -> Result<sideeye_providers::AnthropicProvider, Box<dyn std::error::Error>> {
     let config = load_judge_config();
     let mut route = resolve_judge_route(&config);
@@ -230,7 +250,8 @@ fn anthropic_provider(
     };
     Ok(
         sideeye_providers::AnthropicProvider::new(base, key, model, rubric_text, rubric_version)
-            .with_max_tokens(max_tokens),
+            .with_max_tokens(max_tokens)
+            .with_instructions(instructions.unwrap_or_default()),
     )
 }
 
