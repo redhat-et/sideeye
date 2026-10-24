@@ -18,6 +18,7 @@ use crate::{JudgeProvider, ProviderError};
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MAX_TOKENS: u32 = 4096;
 const DEFAULT_TIMEOUT_SECS: u64 = 90;
+const DEFAULT_CONTEXT_WINDOW: u64 = 200_000;
 const JUDGE_FIELDS: &str = "answered_what_was_asked, correctness, claims_supported, score, issues, overall_severity, summary";
 
 /// Routes that are known to serve the cheap drafting model. A judge on these
@@ -100,19 +101,33 @@ impl AnthropicProvider {
 
     fn request_body(&self, packet: &ReviewPacket) -> Value {
         let (asked, produced) = render_packet(packet);
+        let instruction = if self.supports_forced_tool() {
+            "Grade the response using the rubric, then call record_verdict."
+        } else {
+            "Grade the response using the rubric. You must call record_verdict exactly once with every required field."
+        };
         let user = format!(
-            "## What was asked\n\n{}\n\n## The response under review\n\n{}\n\nGrade the response using the rubric, then call record_verdict.",
+            "## What was asked\n\n{}\n\n## The response under review\n\n{}\n\n{instruction}",
             asked.trim(),
             produced.trim()
         );
-        json!({
+        let mut body = json!({
             "model": self.model,
             "max_tokens": self.max_tokens,
             "system": self.rubric,
             "messages": [{"role": "user", "content": user}],
             "tools": [record_verdict_tool()],
-            "tool_choice": {"type": "tool", "name": "record_verdict"},
-        })
+        });
+        if self.supports_forced_tool() {
+            body["tool_choice"] = json!({"type": "tool", "name": "record_verdict"});
+        }
+        body
+    }
+
+    /// Some newer models reject forced `tool_choice`. They still call the tool
+    /// when the prompt requires it, so omit the forcing parameter for them.
+    fn supports_forced_tool(&self) -> bool {
+        !matches!(self.model.as_str(), "claude-opus-5-5" | "claude-opus-5")
     }
 
     /// Exact input token count for a packet. This is the free count_tokens
@@ -122,6 +137,9 @@ impl AnthropicProvider {
         let mut body = self.request_body(packet);
         if let Some(object) = body.as_object_mut() {
             object.remove("max_tokens");
+            if !self.supports_forced_tool() {
+                object.remove("tool_choice");
+            }
         }
         let response = self.post_path("/v1/messages/count_tokens", &body)?;
         response
@@ -136,6 +154,7 @@ impl AnthropicProvider {
     /// labeled an estimate, matching the Python oracle.
     pub fn estimate(&self, packet: &ReviewPacket) -> Result<Estimate, ProviderError> {
         let input_tokens = self.count_tokens(packet)?;
+        ensure_fits(input_tokens, self.max_tokens as u64, &self.model)?;
         let (input_price, output_price) = pricing(&self.model);
         let cost = input_tokens as f64 * input_price + self.max_tokens as f64 * output_price;
         Ok(Estimate {
@@ -205,6 +224,14 @@ impl AnthropicProvider {
             "tools": body["tools"],
             "tool_choice": body["tool_choice"],
         }))
+        .map(|mut body| {
+            if !self.supports_forced_tool()
+                && let Some(object) = body.as_object_mut()
+            {
+                object.remove("tool_choice");
+            }
+            body
+        })
     }
 }
 
@@ -219,6 +246,8 @@ impl JudgeProvider for AnthropicProvider {
 
     fn judge(&self, packet: &ReviewPacket) -> Result<Verdict, ProviderError> {
         packet.validate()?;
+        let input_tokens = self.count_tokens(packet)?;
+        ensure_fits(input_tokens, self.max_tokens as u64, &self.model)?;
         let body = self.request_body(packet);
         let first = self.post(&body)?;
         ensure_not_truncated(&first, self.max_tokens)?;
@@ -325,6 +354,25 @@ struct CoreIssue {
 
 /// A verdict cut off at `max_tokens` cannot be repaired by retrying: the same
 /// budget will truncate again. Fail with an actionable message instead.
+fn context_window(model: &str) -> u64 {
+    match model {
+        "claude-sonnet-5" | "claude-opus-4-8" | "claude-opus-5-5" | "claude-fable-5" => 200_000,
+        "claude-haiku-4-5-20251001" => 200_000,
+        _ => DEFAULT_CONTEXT_WINDOW,
+    }
+}
+
+fn ensure_fits(input_tokens: u64, max_tokens: u64, model: &str) -> Result<(), ProviderError> {
+    let window = context_window(model);
+    if input_tokens + max_tokens > window {
+        return Err(ProviderError::Configuration(format!(
+            "packet is {input_tokens} input tokens; {model}'s context window is {window} (need {} with output). Reduce the packet or use a larger-context judge.",
+            input_tokens + max_tokens
+        )));
+    }
+    Ok(())
+}
+
 fn ensure_not_truncated(response: &Value, max_tokens: u32) -> Result<(), ProviderError> {
     if response.get("stop_reason").and_then(Value::as_str) == Some("max_tokens") {
         return Err(ProviderError::InvalidVerdict(format!(
@@ -433,6 +481,40 @@ fn record_verdict_tool() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn newer_models_omit_forced_tool_choice() {
+        let provider =
+            AnthropicProvider::new("https://example.test", "k", "claude-opus-5-5", "r", "r1");
+        let packet = ReviewPacket {
+            schema_version: sideeye_core::REVIEW_PACKET_SCHEMA.to_owned(),
+            packet_id: "p".to_owned(),
+            session_id: "s".to_owned(),
+            source: "test".to_owned(),
+            client: "test".to_owned(),
+            generator_model: None,
+            task: "task".to_owned(),
+            turns: vec![sideeye_core::Turn {
+                role: sideeye_core::Role::User,
+                text: "task".to_owned(),
+            }],
+            artifacts: vec![],
+            generation_usage: None,
+            generator_models: vec![],
+        };
+        let body = provider.request_body(&packet);
+        assert!(body.get("tool_choice").is_none());
+        let legacy =
+            AnthropicProvider::new("https://example.test", "k", "claude-opus-4-8", "r", "r1");
+        assert!(legacy.request_body(&packet).get("tool_choice").is_some());
+    }
+
+    #[test]
+    fn context_guard_rejects_overflow_before_spend() {
+        let error = ensure_fits(199_000, 2_048, "claude-opus-4-8").expect_err("must fail");
+        assert!(error.to_string().contains("context window is 200000"));
+        ensure_fits(150_000, 2_048, "claude-opus-4-8").expect("fits");
+    }
 
     #[test]
     fn truncation_is_reported_before_retry() {

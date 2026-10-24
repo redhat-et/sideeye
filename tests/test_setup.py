@@ -64,3 +64,14 @@ def test_setup_follows_enmaas_opencode_wrapper_profile(monkeypatch, tmp_path):
     monkeypatch.setattr(setup.subprocess, "run", fake_run)
     assert setup._opencode_config_file() == tmp_path / "config" / "opencode.json"
     assert seen["env"]["XDG_CONFIG_HOME"].endswith(".config/opencode-enmaas")
+
+
+def test_jsonc_insert_ignores_braces_and_keys_in_comments():
+    text = '{\n  // } stray brace and "plugins": [1]\n  "model": "m"\n}\n'
+    out = setup._jsonc_insert_plugins(text, {"package": "/plugin"})
+    assert '// } stray brace and "plugins": [1]' in out
+    assert out.count('"package": "/plugin"') == 1
+    stripped = "\n".join(line.split("//")[0] for line in out.splitlines())
+    parsed = json.loads(stripped)
+    assert parsed["model"] == "m"
+    assert parsed["plugins"][0]["package"] == "/plugin"

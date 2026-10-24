@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod budget;
 mod redaction;
 
 pub use redaction::{redact_packet, redact_text};

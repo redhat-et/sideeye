@@ -52,6 +52,9 @@ enum Command {
         /// File touched by the session; repeat for each path.
         #[arg(long = "touched-file")]
         touched_files: Vec<String>,
+        /// Character budget for the packet; 0 disables budgeting.
+        #[arg(long, default_value_t = 400_000)]
+        max_packet_chars: usize,
     },
     /// Estimate input tokens and cost without calling the judge.
     Estimate {
@@ -115,7 +118,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             repo,
             diff_base,
             touched_files,
-        } => packet_from_opencode(opencode_export, redact, repo, diff_base, touched_files),
+            max_packet_chars,
+        } => packet_from_opencode(
+            opencode_export,
+            redact,
+            repo,
+            diff_base,
+            touched_files,
+            max_packet_chars,
+        ),
         Command::Estimate {
             packet,
             base_url,
@@ -148,6 +159,7 @@ fn review(
     max_tokens: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let packet: ReviewPacket = serde_json::from_str(&read_input(path)?)?;
+    let packet = packet.redacted();
     let verdict = match provider_name.as_str() {
         "fake" => {
             let fixture = fixture.ok_or("--fixture is required for --provider fake")?;
@@ -246,6 +258,7 @@ fn packet_from_opencode(
     repo: Option<PathBuf>,
     diff_base: String,
     touched_files: Vec<String>,
+    max_packet_chars: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let export: serde_json::Value = serde_json::from_str(&read_input(export_path)?)?;
     let artifacts = match repo {
@@ -254,6 +267,7 @@ fn packet_from_opencode(
     };
     let packet = sideeye_capture::from_opencode_export(&export, artifacts)?;
     let packet = if redact { packet.redacted() } else { packet };
+    let packet = packet.budgeted(max_packet_chars);
     packet.validate()?;
     println!("{}", serde_json::to_string(&packet)?);
     Ok(())
@@ -309,6 +323,7 @@ struct ResolvedRoute {
     base: Option<String>,
     key: Option<String>,
     source: Option<&'static str>,
+    key_source: Option<&'static str>,
     trust_ambient_route: bool,
 }
 
@@ -387,13 +402,20 @@ fn resolve_judge_route_values(
         (None, None)
     };
 
+    let (key, key_source) = if let Some(key) = env_key {
+        (Some(key.to_owned()), Some("env"))
+    } else if let Some(key) = config.api_key.as_deref() {
+        (Some(key.to_owned()), Some("config"))
+    } else if let Some(key) = ambient_key {
+        (Some(key.to_owned()), Some("ambient"))
+    } else {
+        (None, None)
+    };
     ResolvedRoute {
         base,
-        key: env_key
-            .map(str::to_owned)
-            .or_else(|| config.api_key.clone())
-            .or_else(|| ambient_key.map(str::to_owned)),
+        key,
         source,
+        key_source,
         trust_ambient_route: config.trust_ambient_route,
     }
 }
@@ -429,6 +451,19 @@ fn validate_route(route: &ResolvedRoute) -> Result<(), Box<dyn std::error::Error
     {
         return Err(format!(
             "the ambient ANTHROPIC route ({base}) is not an Anthropic host and may be this session's cheap model; set SIDEEYE_JUDGE_BASE_URL or configure judge.trust_ambient_route=true"
+        )
+        .into());
+    }
+    // An explicit base can be a gateway. Sending an ambient Anthropic
+    // credential to it would leak the key to an unrelated host unless the
+    // user explicitly trusts that route.
+    if route.key_source == Some("ambient")
+        && route.source != Some("ambient")
+        && !route.trust_ambient_route
+        && !is_anthropic_host(host_from_url(base).as_deref())
+    {
+        return Err(format!(
+            "refusing to send the ambient ANTHROPIC credential to {base}; set SIDEEYE_JUDGE_API_KEY for this route or configure judge.trust_ambient_route=true"
         )
         .into());
     }
@@ -494,10 +529,11 @@ mod tests {
         assert_eq!(route.base.as_deref(), Some("https://env.example"));
         assert_eq!(route.key.as_deref(), Some("env-key"));
         assert_eq!(route.source, Some("env"));
+        assert_eq!(route.key_source, Some("env"));
     }
 
     #[test]
-    fn key_only_defaults_to_direct_anthropic() {
+    fn ambient_key_is_not_sent_to_an_explicit_foreign_base() {
         let route = resolve_judge_route_values(
             Some("https://explicit.example"),
             None,
@@ -506,7 +542,7 @@ mod tests {
             &JudgeConfig::default(),
         );
         assert_eq!(route.base.as_deref(), Some("https://explicit.example"));
-        assert_eq!(route.key.as_deref(), Some("ambient-key"));
+        assert!(validate_route(&route).is_err());
     }
 
     #[test]

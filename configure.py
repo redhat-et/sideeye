@@ -138,10 +138,11 @@ def _write_text_secure(path: pathlib.Path, text: str) -> None:
 
 def _jsonc_insert_plugins(text: str, entry: dict) -> str:
     """Add one plugin entry to a JSONC object without rewriting comments."""
-    if "\"plugins\"" in text and str(entry["package"]) in text:
+    key = _json_key_index(text, "plugins")
+    if key is not None and str(entry["package"]) in text:
         return text
     encoded = json.dumps(entry, indent=2)
-    if "\"plugins\"" not in text:
+    if key is None:
         close = _last_object_close(text)
         if close is None:
             raise SetupError("OpenCode JSONC config has no root object")
@@ -150,7 +151,7 @@ def _jsonc_insert_plugins(text: str, entry: dict) -> str:
         addition = f'{separator}\n  "plugins": [\n{_indent(encoded, 4)}\n  ]\n'
         return text[:len(before)] + addition + text[close:]
 
-    start = text.find("\"plugins\"")
+    start = key
     opening = text.find("[", start)
     closing = _matching_close(text, opening, "[", "]") if opening >= 0 else None
     if opening < 0 or closing is None:
@@ -170,8 +171,24 @@ def _matching_close(text: str, opening: int, left: str, right: str) -> int | Non
     depth = 0
     in_string = False
     escaped = False
-    for index in range(opening, len(text)):
+    in_line = False
+    in_block = False
+    index = opening
+    while index < len(text):
         char = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if in_line:
+            if char == "\n":
+                in_line = False
+            index += 1
+            continue
+        if in_block:
+            if char == "*" and following == "/":
+                in_block = False
+                index += 2
+                continue
+            index += 1
+            continue
         if in_string:
             if escaped:
                 escaped = False
@@ -179,15 +196,25 @@ def _matching_close(text: str, opening: int, left: str, right: str) -> int | Non
                 escaped = True
             elif char == '"':
                 in_string = False
+            index += 1
             continue
         if char == '"':
             in_string = True
+        elif char == "/" and following == "/":
+            in_line = True
+            index += 2
+            continue
+        elif char == "/" and following == "*":
+            in_block = True
+            index += 2
+            continue
         elif char == left:
             depth += 1
         elif char == right:
             depth -= 1
             if depth == 0:
                 return index
+        index += 1
     return None
 
 
@@ -195,8 +222,25 @@ def _last_object_close(text: str) -> int | None:
     depth = 0
     in_string = False
     escaped = False
+    in_line = False
+    in_block = False
     last = None
-    for index, char in enumerate(text):
+    index = 0
+    while index < len(text):
+        char = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if in_line:
+            if char == "\n":
+                in_line = False
+            index += 1
+            continue
+        if in_block:
+            if char == "*" and following == "/":
+                in_block = False
+                index += 2
+                continue
+            index += 1
+            continue
         if in_string:
             if escaped:
                 escaped = False
@@ -204,16 +248,90 @@ def _last_object_close(text: str) -> int | None:
                 escaped = True
             elif char == '"':
                 in_string = False
+            index += 1
             continue
         if char == '"':
             in_string = True
+        elif char == "/" and following == "/":
+            in_line = True
+            index += 2
+            continue
+        elif char == "/" and following == "*":
+            in_block = True
+            index += 2
+            continue
         elif char == "{":
             depth += 1
         elif char == "}":
             depth -= 1
             if depth == 0:
                 last = index
+        index += 1
     return last
+
+
+def _json_key_index(text: str, key: str) -> int | None:
+    """Find a top-level-ish JSON key outside comments and strings."""
+    in_string = False
+    escaped = False
+    in_line = False
+    in_block = False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if in_line:
+            if char == "\n":
+                in_line = False
+            index += 1
+            continue
+        if in_block:
+            if char == "*" and following == "/":
+                in_block = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == "/" and following == "/":
+            in_line = True
+            index += 2
+            continue
+        if char == "/" and following == "*":
+            in_block = True
+            index += 2
+            continue
+        if char == '"':
+            start = index
+            index += 1
+            value = []
+            while index < len(text):
+                current = text[index]
+                if current == "\\" and index + 1 < len(text):
+                    value.append(text[index + 1])
+                    index += 2
+                    continue
+                if current == '"':
+                    break
+                value.append(current)
+                index += 1
+            if "".join(value) == key:
+                rest = index + 1
+                while rest < len(text) and text[rest].isspace():
+                    rest += 1
+                if rest < len(text) and text[rest] == ":":
+                    return start
+            continue
+        index += 1
+    return None
 
 
 def _configure_judge(*, base_url: str | None, api_key: str | None) -> pathlib.Path:
