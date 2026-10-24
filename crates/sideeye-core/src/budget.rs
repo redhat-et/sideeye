@@ -6,6 +6,8 @@
 //! within a character budget. Dropped content is marked in-band so the judge
 //! knows its view is partial.
 
+use std::cmp::Reverse;
+
 use crate::{Artifact, ReviewPacket, Role, Turn};
 
 const USER_TURN_CAP: usize = 8_000;
@@ -34,7 +36,10 @@ impl ReviewPacket {
         }
 
         let artifact_budget = (max_chars / 4).min(120_000);
-        let transcript_budget = max_chars.saturating_sub(artifact_budget);
+        // Reserve room for elision markers and the trailing budget note.
+        let transcript_budget = max_chars
+            .saturating_sub(artifact_budget)
+            .saturating_sub(1_024);
         let mut budgeted = self.clone();
         budgeted.artifacts = budget_artifacts(&self.artifacts, artifact_budget);
         let (turns, trimmed) = budget_turns(&self.turns, transcript_budget);

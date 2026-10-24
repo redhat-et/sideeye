@@ -127,7 +127,7 @@ impl AnthropicProvider {
     /// Some newer models reject forced `tool_choice`. They still call the tool
     /// when the prompt requires it, so omit the forcing parameter for them.
     fn supports_forced_tool(&self) -> bool {
-        !matches!(self.model.as_str(), "claude-opus-5-5" | "claude-opus-5")
+        !self.model.starts_with("claude-opus-5")
     }
 
     /// Exact input token count for a packet. This is the free count_tokens
@@ -246,8 +246,11 @@ impl JudgeProvider for AnthropicProvider {
 
     fn judge(&self, packet: &ReviewPacket) -> Result<Verdict, ProviderError> {
         packet.validate()?;
-        let input_tokens = self.count_tokens(packet)?;
-        ensure_fits(input_tokens, self.max_tokens as u64, &self.model)?;
+        // Best-effort guard: some gateways do not implement count_tokens.
+        // Their judge call still fails closed on an oversized request.
+        if let Ok(input_tokens) = self.count_tokens(packet) {
+            ensure_fits(input_tokens, self.max_tokens as u64, &self.model)?;
+        }
         let body = self.request_body(packet);
         let first = self.post(&body)?;
         ensure_not_truncated(&first, self.max_tokens)?;
@@ -352,15 +355,12 @@ struct CoreIssue {
     evidence: Vec<String>,
 }
 
+fn context_window(_model: &str) -> u64 {
+    DEFAULT_CONTEXT_WINDOW
+}
+
 /// A verdict cut off at `max_tokens` cannot be repaired by retrying: the same
 /// budget will truncate again. Fail with an actionable message instead.
-fn context_window(model: &str) -> u64 {
-    match model {
-        "claude-sonnet-5" | "claude-opus-4-8" | "claude-opus-5-5" | "claude-fable-5" => 200_000,
-        "claude-haiku-4-5-20251001" => 200_000,
-        _ => DEFAULT_CONTEXT_WINDOW,
-    }
-}
 
 fn ensure_fits(input_tokens: u64, max_tokens: u64, model: &str) -> Result<(), ProviderError> {
     let window = context_window(model);
