@@ -39,6 +39,37 @@ test("resolves a nested repository from tool input and preserves changed files",
   ])
 })
 
+test("diff base prefers origin/main over a self-tracking upstream", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-base-"))
+  const repo = join(workspace, "project")
+  mkdirSync(repo)
+  git(repo, ["init", "-q"])
+  git(repo, ["config", "user.email", "test@example.invalid"])
+  git(repo, ["config", "user.name", "Side-Eye Test"])
+  const file = join(repo, "answer.txt")
+  writeFile(file, "base\n")
+  git(repo, ["add", "answer.txt"])
+  git(repo, ["commit", "-qm", "base"])
+  const base = git(repo, ["rev-parse", "HEAD"])
+  // Simulate origin/main at the base commit, then advance the feature branch.
+  git(repo, ["update-ref", "refs/remotes/origin/main", base])
+  git(repo, ["checkout", "-qb", "feature"])
+  writeFile(file, "feature\n")
+  git(repo, ["add", "answer.txt"])
+  git(repo, ["commit", "-qm", "feature"])
+  // A self-tracking upstream would make merge-base equal HEAD.
+  const feature = git(repo, ["rev-parse", "HEAD"])
+  git(repo, ["update-ref", "refs/remotes/origin/feature", feature])
+  git(repo, ["config", "branch.feature.remote", "origin"])
+  git(repo, ["config", "branch.feature.merge", "refs/heads/feature"])
+
+  assert.equal(await testHelpers.gitMergeBase(repo), base)
+  const touched = await testHelpers.gitTouchedFiles(repo, await testHelpers.gitMergeBase(repo), {
+    messages: [{type: "assistant", content: [{type: "tool", state: {input: {path: file}}}]}],
+  })
+  assert.deepEqual(touched, [{path: "answer.txt", count: 1}])
+})
+
 test("runs a configured engine without a shell and tolerates early stdin close", async () => {
   const directory = mkdtempSync(join(tmpdir(), "sideeye-opencode-engine-"))
   const script = join(directory, "fake-engine.mjs")
