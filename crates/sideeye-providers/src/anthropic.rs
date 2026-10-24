@@ -47,6 +47,7 @@ pub struct AnthropicProvider {
     max_tokens: u32,
     timeout: Duration,
     user_agent: String,
+    instructions: Option<String>,
 }
 
 impl AnthropicProvider {
@@ -67,7 +68,15 @@ impl AnthropicProvider {
             max_tokens: DEFAULT_MAX_TOKENS,
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             user_agent: "sideeye-rs/0.1".to_owned(),
+            instructions: None,
         }
+    }
+
+    /// Extra focus from the user, e.g. "review for security vulnerabilities".
+    pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
+        let instructions = instructions.into();
+        self.instructions = (!instructions.trim().is_empty()).then_some(instructions);
+        self
     }
 
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
@@ -106,8 +115,13 @@ impl AnthropicProvider {
         } else {
             "Grade the response using the rubric. You must call record_verdict exactly once with every required field."
         };
+        let focus = self
+            .instructions
+            .as_deref()
+            .map(|value| format!("## Reviewer instructions\n\n{}\n\n", value.trim()))
+            .unwrap_or_default();
         let user = format!(
-            "## What was asked\n\n{}\n\n## The response under review\n\n{}\n\n{instruction}",
+            "## What was asked\n\n{}\n\n{focus}## The response under review\n\n{}\n\n{instruction}",
             asked.trim(),
             produced.trim()
         );
@@ -359,9 +373,6 @@ fn context_window(_model: &str) -> u64 {
     DEFAULT_CONTEXT_WINDOW
 }
 
-/// A verdict cut off at `max_tokens` cannot be repaired by retrying: the same
-/// budget will truncate again. Fail with an actionable message instead.
-
 fn ensure_fits(input_tokens: u64, max_tokens: u64, model: &str) -> Result<(), ProviderError> {
     let window = context_window(model);
     if input_tokens + max_tokens > window {
@@ -373,6 +384,8 @@ fn ensure_fits(input_tokens: u64, max_tokens: u64, model: &str) -> Result<(), Pr
     Ok(())
 }
 
+/// A verdict cut off at `max_tokens` cannot be repaired by retrying: the same
+/// budget will truncate again. Fail with an actionable message instead.
 fn ensure_not_truncated(response: &Value, max_tokens: u32) -> Result<(), ProviderError> {
     if response.get("stop_reason").and_then(Value::as_str) == Some("max_tokens") {
         return Err(ProviderError::InvalidVerdict(format!(

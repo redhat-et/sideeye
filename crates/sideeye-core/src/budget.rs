@@ -136,13 +136,17 @@ fn budget_turns(turns: &[Turn], budget: usize) -> (Vec<Turn>, bool) {
     // Add remaining turns newest-first by salience: tool evidence, then
     // assistant narration, then system notes.
     let mut order: Vec<usize> = (0..turns.len()).filter(|index| !selected[*index]).collect();
-    order.sort_by_key(|index| match turns[*index].role {
-        Role::Tool => 0,
-        Role::Assistant => 1,
-        Role::System => 2,
-        Role::User => 3,
+    // Newest-first within each salience tier: tool evidence, then assistant
+    // narration, then system notes.
+    order.sort_by_key(|index| {
+        let tier = match turns[*index].role {
+            Role::Tool => 0,
+            Role::Assistant => 1,
+            Role::System => 2,
+            Role::User => 3,
+        };
+        (tier, Reverse(*index))
     });
-    order.reverse();
     for index in order {
         let cost = capped[index].0.len();
         if used + cost > budget {
