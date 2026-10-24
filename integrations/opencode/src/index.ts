@@ -295,13 +295,21 @@ async function gitRoot(candidate: string): Promise<string | undefined> {
 }
 
 async function gitMergeBase(repo: string): Promise<string> {
+  // Review against the project base, not the branch's own upstream. On a
+  // feature branch whose upstream is its own tip, using upstream makes
+  // merge-base equal HEAD and silently produces an empty code diff.
+  const refs = ["origin/main", "main", "master"]
+  for (const ref of refs) {
+    const result = await runProcess("git", ["-C", repo, "merge-base", "HEAD", ref], repo)
+    if (result.status === 0 && result.stdout.trim()) return result.stdout.trim()
+  }
   const upstream = await runProcess(
     "git",
     ["-C", repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
     repo,
   )
-  const refs = [upstream.status === 0 ? upstream.stdout.trim() : "", "origin/main", "main", "master"]
-  for (const ref of refs.filter(Boolean)) {
+  if (upstream.status === 0 && upstream.stdout.trim()) {
+    const ref = upstream.stdout.trim()
     const result = await runProcess("git", ["-C", repo, "merge-base", "HEAD", ref], repo)
     if (result.status === 0 && result.stdout.trim()) return result.stdout.trim()
   }
