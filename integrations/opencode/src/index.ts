@@ -47,29 +47,7 @@ export async function reviewExport(
     if (instructions) {
       return "Focus instructions require the Rust engine (`engine: rust`). Re-run setup with `sideeye` on PATH."
     }
-    const wrapper = { repo, diff_base: diffBase, touched_files: touchedFiles, data }
-    const command = Array.isArray(options.command) ? options.command : [options.command ?? "sideeye-py"]
-    const estimate = await run(command[0], [
-      ...command.slice(1), "review", "--opencode-export", "-", "--estimate-only", "--json",
-      "--repo", repo, "--diff-base", diffBase,
-    ], JSON.stringify(wrapper), repo)
-    if (estimate.code !== 0) {
-      return `Side-Eye estimate failed before producing a verdict.\n\n${estimate.stderr || estimate.stdout}`
-    }
-    const estimateRecord = lastJsonLine(estimate.stdout)
-    if (!estimateRecord) return `Side-Eye returned no structured estimate.\n\n${estimate.stdout}`
-    if (!confirm) return formatEstimate(estimateRecord)
-
-    const out = await run(command[0], [
-      ...command.slice(1), "review", "--opencode-export", "-", "--yes", "--json",
-      "--repo", repo, "--diff-base", diffBase,
-    ], JSON.stringify(wrapper), repo)
-    if (out.code !== 0) {
-      return `Side-Eye review failed before producing a verdict.\n\n${out.stderr || out.stdout}`
-    }
-    const record = lastJsonLine(out.stdout)
-    if (!record) return `Side-Eye returned no structured verdict.\n\n${out.stdout}`
-    return `Side-Eye verdict (raw structured record):\n${JSON.stringify(record, null, 2)}`
+    return "Side-Eye requires the Rust engine. Run `sideeye setup` and restart OpenCode."
   } catch (error) {
     return `Side-Eye review could not start: ${error instanceof Error ? error.message : String(error)}`
   }

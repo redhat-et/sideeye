@@ -13,7 +13,7 @@ use sideeye_core::{
     Correctness, IssueSeverity, ReviewPacket, Role, Severity, VERDICT_SCHEMA, Verdict, VerdictIssue,
 };
 
-use crate::{JudgeProvider, ProviderError};
+use crate::{Advice, JudgeAdvisor, JudgeProvider, ProviderError};
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MAX_TOKENS: u32 = 4096;
@@ -331,6 +331,51 @@ impl JudgeProvider for AnthropicProvider {
                 Ok(self.finish(packet, core, usage))
             }
         }
+    }
+}
+
+impl JudgeAdvisor for AnthropicProvider {
+    fn advise(&self, question: &str, context: &str) -> Result<Advice, ProviderError> {
+        let prompt = format!(
+            "## Question\n\n{}\n\n## Recent session evidence\n\n{}\n\nGive a direct second opinion. Name concrete risks and the next action.",
+            question.trim(),
+            context.trim()
+        );
+        let body = json!({
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "system": self.rubric,
+            "messages": [{"role": "user", "content": prompt}],
+        });
+        let response = self.post(&body)?;
+        ensure_not_truncated(&response, self.max_tokens)?;
+        let text = response
+            .get("content")
+            .and_then(Value::as_array)
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter_map(|block| block.get("text").and_then(Value::as_str))
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+        if text.trim().is_empty() {
+            return Err(ProviderError::InvalidVerdict(
+                "judge returned empty advice".to_owned(),
+            ));
+        }
+        let usage = Usage::from(&response);
+        let (input_price, output_price) = pricing(&self.model);
+        let cost =
+            usage.input_tokens as f64 * input_price + usage.output_tokens as f64 * output_price;
+        Ok(Advice {
+            text,
+            provider: "anthropic".to_owned(),
+            model: self.model.clone(),
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cost_usd: Some((cost * 1_000_000.0).round() / 1_000_000.0),
+        })
     }
 }
 

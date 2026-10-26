@@ -124,31 +124,17 @@ test("estimate shows the scope and the matching confirmation command", () => {
   assert.match(unknown, /estimated cost: unknown \(provider pricing not configured\)/)
 })
 
-test("review export estimates first and requires explicit confirmation", async () => {
-  const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-review-"))
+test("non-rust engine fails closed without a Python fallback", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-no-rust-"))
   const repo = join(workspace, "project")
   mkdirSync(repo)
   git(repo, ["init", "-q"])
-  git(repo, ["config", "user.email", "test@example.invalid"])
-  git(repo, ["config", "user.name", "Side-Eye Test"])
-  const file = join(repo, "answer.txt")
-  writeFile(file, "before\n")
-  git(repo, ["add", "answer.txt"])
-  git(repo, ["commit", "-qm", "initial"])
-  writeFile(file, "after\n")
-  const fake = join(workspace, "fake-engine.mjs")
-  writeFile(fake, [
-    "const estimate = process.argv.includes('--estimate-only');",
-    "process.stdout.write(JSON.stringify(estimate ? {type:'estimate', estimated_cost_usd:0.12, input_tokens:12, exact:true, adapter_version:'v1-sighted'} : {score:5, summary:'fixture verdict'}) + '\\n');",
-  ].join("\n"))
-  const data = {
-    messages: [{type: "assistant", content: [{type: "tool", state: {input: {path: file}}}]}],
-  }
-  const options = {command: [process.execPath, fake], repo}
-  const estimate = await testHelpers.reviewExport({location: {directory: repo}}, data, options)
-  assert.match(estimate, /estimate \(no judge call made\)/i)
-  const verdict = await testHelpers.reviewExport({location: {directory: repo}}, data, options, "--confirm")
-  assert.match(verdict, /fixture verdict/)
+  const result = await testHelpers.reviewExport(
+    {location: {directory: repo}},
+    {messages: [{type: "user", text: "task"}]},
+    {command: ["python-engine"], repo},
+  )
+  assert.match(result, /requires the Rust engine/i)
 })
 
 test("rust engine builds a packet, estimates, then reviews on confirm", async () => {

@@ -58,7 +58,7 @@ streams.
 During migration:
 
 - `sideeye` — Rust binary, the product.
-- `sideeye-py` — legacy Python CLI, temporary oracle/fallback.
+- `sideeye-py` — temporary Python oracle/research CLI; not a product path.
 
 After the gates below:
 
@@ -75,8 +75,8 @@ After the gates below:
 - Updated plugin defaults, release artifacts, docs, and the demo.
 - Fixed the misleading “focus” wording: `/sideeye <free text>` is the syntax.
 
-Gate: `sideeye --version` resolves to Rust; `sideeye-py` remains the explicit
-legacy command; OpenCode setup selects the right one.
+Gate: `sideeye --version` resolves to Rust; `sideeye-py` is used only for
+oracle/research checks; no harness path invokes it.
 
 ### Phase 1 — Rust setup (complete in 0.6.1)
 
@@ -137,29 +137,31 @@ nothing is missing.
 Gate: the same packet can be judged through Anthropic and an OpenAI-compatible
 local/gateway route with the same validated verdict contract.
 
-### Phase 4 — Rust session review, advise, Claude Code, and Codex (items 12–13)
+### Phase 4 — Rust session review, advise, Claude Code, and Codex (items 12–13, 0.6.7)
 
-- generic session packet capture for Claude Code JSONL and Codex rollouts;
-- current-session resolution, including `CLAUDE_CODE_SESSION_ID`;
-- code artifact parity (manifests, partial views, generated files);
-- `sideeye review --current` and `sideeye advise --current`;
-- native Claude Code skill/command wired to the Rust binary;
-- native Codex integration wired to the Rust binary;
-- remove Python from all harness paths.
+- [x] generic session capture for Claude Code JSONL and Codex rollouts;
+- [x] current-session resolution, including `CLAUDE_CODE_SESSION_ID`;
+- [x] code artifact capture, including a fallback to all changed/untracked files;
+- [x] `sideeye session --client claude|codex --current`;
+- [x] `sideeye advise --client claude|codex --current --question ...`;
+- [x] native Claude Code skill installed by setup (`~/.claude/skills/sideeye`);
+- [x] native Codex skill installed by setup (`~/.agents/skills/sideeye`);
+- [x] remove Python from OpenCode, Claude Code, Codex, and setup paths.
 
-Gate: Claude Code, Codex, and OpenCode run without Python; golden fixtures from
-the Python adapters parse identically in Rust.
+Gate: Claude Code, Codex, and OpenCode run without Python. Golden-fixture
+conformance and full Python deletion remain Phase 6.
 
-### Phase 5 — conformance, metrics, and cutover (item 14)
+### Phase 5 — conformance, metrics, and cutover (item 14, 0.6.7)
 
-- Run Python and Rust against the same fixtures and real sessions.
-- Cross-harness CI with isolated HOME/config/repo per harness.
-- Compare verdict semantic fields, evidence, provenance, and cost.
-- Local judge-success ledger: confirmed / false-positive / neutral labels.
-- `sideeye stats`: precision, catch rate, false-positive rate, cost per
-  confirmed finding, coverage.
-- Keep the local ledger privacy-preserving: no prompts, code, paths, or keys.
-- Opt-in aggregate upload remains a later decision and is not implemented yet.
+- [x] local judge-success labels: confirmed / false-positive / neutral;
+- [x] `sideeye label` and `sideeye stats`;
+- [x] precision, false-positive rate, coverage, and cost per confirmed finding;
+- [x] local ledger contains only record ids, labels, and verdict cost; no
+      prompts, code, paths, or keys;
+- [ ] Run Python and Rust against the same fixtures and real sessions.
+- [ ] Cross-harness CI with isolated HOME/config/repo per harness.
+- [ ] Compare verdict semantic fields, evidence, provenance, and cost.
+- [ ] Opt-in aggregate upload (deferred; local-only milestone first).
 
 Gate: Rust tests cover the same behaviors as Python; all golden fixtures pass;
 all three harnesses pass end to end; the local metrics ledger and stats work.
@@ -174,10 +176,10 @@ all three harnesses pass end to end; the local metrics ledger and stats work.
 
 ## Test coverage target
 
-Current (0.6.6 development):
+Current (0.6.7 development):
 
 - Python: 169 tests.
-- Rust: 58 tests.
+- Rust: 71 tests.
 - OpenCode plugin: 10 tests.
 
 The Rust suite must reach behavioral parity, not merely the same count. Track

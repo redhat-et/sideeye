@@ -85,18 +85,21 @@ pub(crate) fn install_opencode_plugin(
         }
     }
 
-    let python = which("sideeye-py").unwrap_or_else(|| PathBuf::from("sideeye-py"));
-    let rust = which("sideeye").filter(|path| is_rust_sideeye(path));
+    let rust = std::env::current_exe()
+        .ok()
+        .filter(|path| is_rust_sideeye(path))
+        .or_else(|| which("sideeye").filter(|path| is_rust_sideeye(path)))
+        .ok_or_else(|| {
+            "cannot find the Rust sideeye binary for the OpenCode plugin; install the release artifact and re-run setup"
+                .to_owned()
+        })?;
     let mut options = json!({
-        "command": [python],
+        "engine": "rust",
+        "rust": [rust],
         "model": model,
         "maxTokens": max_tokens,
         "provider": provider,
     });
-    if let Some(rust) = rust {
-        options["engine"] = json!("rust");
-        options["rust"] = json!([rust]);
-    }
     if let Some(repo) = repo.map(Path::to_path_buf).or_else(git_root) {
         options["repo"] = json!(repo);
     }
@@ -482,6 +485,38 @@ fn scan(text: &str, start: usize, pair: Option<(u8, u8)>) -> Option<usize> {
         index += 1;
     }
     pair.is_none().then_some(last).flatten()
+}
+
+const CLAUDE_SKILL: &str = include_str!("../../../skills/claude/SKILL.md");
+const CODEX_SKILL: &str = include_str!("../../../skills/codex/SKILL.md");
+const CODEX_META: &str = include_str!("../../../skills/codex/agents/openai.yaml");
+
+pub(crate) fn install_harness_skills(claude: bool, codex: bool) -> Result<Vec<PathBuf>, String> {
+    let home = env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| "HOME is not set; cannot install harness skills".to_owned())?;
+    let mut installed = Vec::new();
+    if claude {
+        let path = home.join(".claude/skills/sideeye/SKILL.md");
+        write_skill(&path, CLAUDE_SKILL)?;
+        installed.push(path);
+    }
+    if codex {
+        let directory = home.join(".agents/skills/sideeye");
+        let path = directory.join("SKILL.md");
+        write_skill(&path, CODEX_SKILL)?;
+        write_skill(&directory.join("agents/openai.yaml"), CODEX_META)?;
+        installed.push(path);
+    }
+    Ok(installed)
+}
+
+fn write_skill(path: &Path, content: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+    }
+    fs::write(path, content).map_err(|error| format!("cannot write {}: {error}", path.display()))
 }
 
 #[cfg(test)]

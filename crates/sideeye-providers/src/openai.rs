@@ -13,7 +13,7 @@ use sideeye_core::{
 };
 
 use crate::{
-    Estimate, JudgeProvider, ProviderError,
+    Advice, Estimate, JudgeAdvisor, JudgeProvider, ProviderError,
     anthropic::{render_packet, verdict_schema},
 };
 
@@ -196,6 +196,49 @@ impl OpenAiProvider {
             // paid gateway; its own metering is authoritative.
             cost_usd: None,
         }
+    }
+}
+
+impl JudgeAdvisor for OpenAiProvider {
+    fn advise(&self, question: &str, context: &str) -> Result<Advice, ProviderError> {
+        let prompt = format!(
+            "## Question\n\n{}\n\n## Recent session evidence\n\n{}\n\nGive a direct second opinion. Name concrete risks and the next action.",
+            question.trim(),
+            context.trim()
+        );
+        let body = json!({
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "messages": [
+                {"role": "system", "content": self.rubric},
+                {"role": "user", "content": prompt},
+            ],
+        });
+        let response = self.post("/v1/chat/completions", &body)?;
+        ensure_not_truncated(&response, self.max_tokens)?;
+        let text = response
+            .get("choices")
+            .and_then(Value::as_array)
+            .and_then(|choices| choices.first())
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("content"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        if text.trim().is_empty() {
+            return Err(ProviderError::InvalidVerdict(
+                "judge returned empty advice".to_owned(),
+            ));
+        }
+        let usage = Usage::from(&response);
+        Ok(Advice {
+            text,
+            provider: "openai-compatible".to_owned(),
+            model: self.model.clone(),
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cost_usd: None,
+        })
     }
 }
 
