@@ -495,10 +495,13 @@ fn setup(
         .get("base_url")
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned);
+    // An explicit Side-Eye route or the saved route wins over ambient
+    // ANTHROPIC_BASE_URL. Ambient values often point at the session's local
+    // drafting proxy and must not silently replace the judge.
     let mut selected_base = base_url
         .or_else(|| nonempty_env("SIDEEYE_JUDGE_BASE_URL"))
-        .or_else(|| nonempty_env("ANTHROPIC_BASE_URL"))
         .or(existing_base)
+        .or_else(|| nonempty_env("ANTHROPIC_BASE_URL"))
         .unwrap_or_else(|| AMBIENT_BASE_DEFAULT.to_owned());
     if interactive {
         selected_base = prompt_input("Judge base URL", &selected_base)?;
