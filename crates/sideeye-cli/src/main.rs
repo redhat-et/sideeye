@@ -1,9 +1,12 @@
 use std::{
     env, fs,
-    io::{self, Read},
-    path::PathBuf,
+    io::{self, IsTerminal, Read, Write},
+    path::{Path, PathBuf},
     process::ExitCode,
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use clap::{Parser, Subcommand};
 use serde_json::Value;
@@ -30,6 +33,18 @@ enum Command {
         /// Judge base URL override; useful for an explicit local/gateway route.
         #[arg(long)]
         base_url: Option<String>,
+    },
+    /// Configure the judge route and detect harnesses.
+    Setup {
+        /// Judge base URL override.
+        #[arg(long)]
+        judge_base_url: Option<String>,
+        /// Judge API key (prefer the environment or the hidden prompt).
+        #[arg(long, hide = true)]
+        judge_api_key: Option<String>,
+        /// Do not configure the OpenCode plugin.
+        #[arg(long)]
+        no_opencode: bool,
     },
     /// Validate a normalized review packet from a file or stdin.
     Validate {
@@ -118,6 +133,11 @@ fn main() -> ExitCode {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
         Command::Doctor { base_url } => doctor(base_url),
+        Command::Setup {
+            judge_base_url,
+            judge_api_key,
+            no_opencode,
+        } => setup(judge_base_url, judge_api_key, no_opencode),
         Command::Validate { packet } => validate(packet),
         Command::Packet {
             opencode_export,
@@ -303,6 +323,131 @@ fn read_input(path: PathBuf) -> Result<String, Box<dyn std::error::Error>> {
     } else {
         Ok(fs::read_to_string(path)?)
     }
+}
+
+fn normalize_base_url(value: &str) -> String {
+    let value = value.trim().trim_end_matches('/');
+    value.strip_suffix("/v1").unwrap_or(value).to_owned()
+}
+
+fn on_path(name: &str) -> bool {
+    env::var_os("PATH")
+        .map(|paths| env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
+        .unwrap_or(false)
+}
+
+fn detect_harnesses() -> [(&'static str, bool); 3] {
+    let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    [
+        (
+            "Claude Code",
+            on_path("claude") || home.join(".claude").exists(),
+        ),
+        ("Codex", on_path("codex") || home.join(".codex").exists()),
+        ("OpenCode", on_path("opencode")),
+    ]
+}
+
+fn write_json_secure(path: &Path, value: &serde_json::Value) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.json");
+    let temporary = path.with_file_name(format!(".{file_name}.{}.tmp", std::process::id()));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&temporary)?;
+    #[cfg(unix)]
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    serde_json::to_writer_pretty(&mut file, value)?;
+    file.write_all(b"\n")?;
+    file.sync_all()?;
+    fs::rename(&temporary, path)?;
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+fn setup(
+    base_url: Option<String>,
+    api_key: Option<String>,
+    no_opencode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = config_path();
+    let mut config: serde_json::Value = if path.exists() {
+        serde_json::from_str(&fs::read_to_string(&path)?).unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+    if !config.is_object() {
+        config = serde_json::json!({});
+    }
+    let mut judge = config
+        .get("judge")
+        .cloned()
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let existing = judge
+        .get("api_key")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    let mut key = api_key
+        .or_else(|| env::var("SIDEEYE_JUDGE_API_KEY").ok())
+        .or(existing);
+    if key.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        if !io::stdin().is_terminal() {
+            return Err(
+                "no judge credential configured; set SIDEEYE_JUDGE_API_KEY or run sideeye setup in an interactive terminal".into(),
+            );
+        }
+        key = Some(rpassword::prompt_password(
+            "Side-Eye judge API key (hidden): ",
+        )?);
+    }
+    let key = key.unwrap_or_default();
+    if key.trim().is_empty() {
+        return Err("judge API key cannot be empty".into());
+    }
+    judge["api_key"] = serde_json::json!(key.trim());
+
+    let selected = base_url
+        .or_else(|| env::var("SIDEEYE_JUDGE_BASE_URL").ok())
+        .or_else(|| {
+            judge
+                .get("base_url")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
+    if let Some(value) = selected {
+        judge["base_url"] = serde_json::json!(normalize_base_url(&value));
+    } else if let Some(object) = judge.as_object_mut() {
+        object.remove("base_url");
+    }
+    config["judge"] = judge;
+    write_json_secure(&path, &config)?;
+
+    println!("judge route: configured ({})", path.display());
+    for (name, detected) in detect_harnesses() {
+        println!(
+            "{name}: {}",
+            if detected { "detected" } else { "not detected" }
+        );
+    }
+    if no_opencode {
+        println!("OpenCode plugin: skipped");
+    } else {
+        println!(
+            "OpenCode plugin: Rust setup port pending; run `sideeye-py setup` to install it for now"
+        );
+    }
+    println!("Run `sideeye doctor` to verify the route without spending.");
+    Ok(())
 }
 
 fn doctor(base_url: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
