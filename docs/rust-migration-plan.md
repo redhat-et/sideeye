@@ -50,28 +50,24 @@ After the gates below:
 Gate: `sideeye --version` resolves to Rust; `sideeye-py` remains the explicit
 legacy command; OpenCode setup selects the right one.
 
-Transitional note: setup is still `sideeye-py setup` until Phase 1 lands.
+`sideeye-py setup` remains only as a fallback for older installations.
 
-### Phase 1 — Rust setup (in progress)
-
-Ported:
+### Phase 1 — Rust setup (complete in 0.6.0)
 
 - [x] Side-Eye config path and atomic mode-600 write;
 - [x] hidden credential prompt and noninteractive fail-closed;
 - [x] base URL normalization;
 - [x] preserve unrelated config keys;
 - [x] detect Claude Code, Codex, and OpenCode;
-- [x] `sideeye setup --no-opencode`.
+- [x] OpenCode profile discovery, including the EnMaaS wrapper;
+- [x] JSON/JSONC update without dropping comments;
+- [x] embed/copy the OpenCode plugin and run `npm ci` + `npm run build`;
+- [x] write plugin options: `engine`, `rust`, `repo`;
+- [x] `sideeye setup` is the complete setup path.
 
-Pending:
-
-- [ ] OpenCode profile discovery, including the EnMaaS wrapper;
-- [ ] JSON/JSONC update without dropping comments;
-- [ ] embed/copy the OpenCode plugin and run `npm ci` + `npm run build`;
-- [ ] write plugin options: `engine`, `rust`, `repo`.
-
-Gate: an isolated `HOME`/config setup produces the same files as Python; no
-normal configuration writes.
+Gate: isolated tests cover secure config, JSONC preservation, plugin install,
+plugin options, and noninteractive failure. `sideeye setup` was run on a real
+profile and produced the expected OpenCode configuration.
 
 ### Phase 2 — Rust capture parity
 
