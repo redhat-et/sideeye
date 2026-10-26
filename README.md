@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.0
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.1
 
 ---
 
@@ -29,7 +29,8 @@ uv tool install git+https://github.com/redhat-et/sideeye
 Then run the one-time setup:
 
 ```bash
-sideeye setup
+sideeye setup                      # run inside the project
+sideeye setup --repo /path/to/repo # or point at it explicitly
 ```
 
 Setup:

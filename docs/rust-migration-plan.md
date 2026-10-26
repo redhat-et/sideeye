@@ -52,7 +52,7 @@ legacy command; OpenCode setup selects the right one.
 
 `sideeye-py setup` remains only as a fallback for older installations.
 
-### Phase 1 — Rust setup (complete in 0.6.0)
+### Phase 1 — Rust setup (complete in 0.6.1)
 
 - [x] Side-Eye config path and atomic mode-600 write;
 - [x] hidden credential prompt and noninteractive fail-closed;
@@ -63,7 +63,8 @@ legacy command; OpenCode setup selects the right one.
 - [x] JSON/JSONC update without dropping comments;
 - [x] embed/copy the OpenCode plugin and run `npm ci` + `npm run build`;
 - [x] write plugin options: `engine`, `rust`, `repo`;
-- [x] `sideeye setup` is the complete setup path.
+- [x] `sideeye setup` is the complete setup path;
+- [x] explicit `--repo` for multi-repository workspaces.
 
 Gate: isolated tests cover secure config, JSONC preservation, plugin install,
 plugin options, and noninteractive failure. `sideeye setup` was run on a real
@@ -142,6 +143,11 @@ not delete the oracle before the gate.
 5. Port advise and session review.
 6. Conformance matrix.
 7. Delete Python.
+
+## Versioning policy
+
+Stay on the `0.6.x` line. Use patch bumps (`0.6.1`, `0.6.2`, ...) until the
+maintainer explicitly authorizes a minor or major release.
 
 ## Keeping this plan current
 
