@@ -1,184 +1,231 @@
 # Side-Eye
 
-*Draft cheap, review expensive* — a cheap model does the work; its output is
-sampled to an expensive **Claude** judge, asynchronously, outside the request
-path. On demand, `/sideeye:ask` sends the session you're in (or part of it) to
-the strong judge for an independent second opinion. The scoreboard answers
-*"how much can we save at held quality?"*
-(Pitch: [`docs/judge-sampling-pitch.md`](docs/judge-sampling-pitch.md).)
-Want the 60-second version? Open
-[`docs/sideeye-demo.html`](docs/sideeye-demo.html) in a browser.
+**Draft cheap. Review expensive.**
 
+Side-Eye is an independent quality-control layer for AI coding agents. A cheap
+model does the work; a stronger judge reviews the session, the diff, and the
+evidence — then returns a structured verdict without letting the drafting model
+grade itself.
 
-## Install (Claude Code)
+- Native commands in **Claude Code** and **OpenCode**
+- A **Codex** CLI adapter today
+- A provider-neutral Rust core, with the Python engine as the behavioral oracle
+- Estimate first, confirm before spend
+- Self-grading, secret, context, and budget guards
 
-```
-/plugin marketplace add redhat-et/sideeye
-/plugin install sideeye@sideeye
-```
+**Demo:** https://redhat-et.github.io/sideeye/  
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.4.1
 
-That's the whole install. The first time you run `/sideeye:ask`, the skill
-installs the `sideeye` engine itself (one-time, ~30s, via `uv` or `pipx` if
-present) — no terminal, no files to copy.
+---
 
-If you also want the CLI on PATH outside Claude Code (or your machine has no
-uv/pipx and you'd rather install once by hand):
+## Install
 
 ```bash
-uv tool install git+https://github.com/redhat-et/sideeye   # or pipx / pip install
-pip install -e .                                             # development checkout
+uv tool install git+https://github.com/redhat-et/sideeye
+# or: pipx install git+https://github.com/redhat-et/sideeye
+# or: pip install git+https://github.com/redhat-et/sideeye
 ```
 
-### One-command setup
-
-After installing the CLI, run:
+Then run the one-time setup:
 
 ```bash
 sideeye setup
 ```
 
-Setup asks once for the judge credential, stores it in the Side-Eye config with
-mode 600, detects Claude Code, Codex, and OpenCode, and configures the bundled
-OpenCode plugin when Node/npm and a supported OpenCode config are available.
-It preserves unrelated JSON and JSONC settings.
+Setup:
 
-Use `sideeye setup --no-opencode` to configure only the judge route.
+- asks once for a hidden judge credential;
+- stores it in Side-Eye config with mode `600`;
+- detects Claude Code, Codex, and OpenCode;
+- installs and configures the bundled OpenCode plugin;
+- preserves unrelated JSON/JSONC settings;
+- selects the Rust engine when `sideeye-rs` is on `PATH`.
 
-Runtime requirements (judge route) are in the section below.
-
-### Configure the judge route
-
-The judge must hit a real Claude route — never the cheap model that drafted the
-session (a judge sharing the drafted-with model is the self-grading failure
-Side-Eye exists to catch). Resolution order:
-
-1. `--base-url` flag
-2. `SIDEEYE_JUDGE_BASE_URL` + `SIDEEYE_JUDGE_API_KEY` env vars
-3. config file — `~/.config/sideeye/config.json` (or `$SIDEEYE_CONFIG`), chmod 600:
-   ```json
-   { "judge": { "base_url": "https://your-claude-route", "api_key": "sk-…" } }
-   ```
-4. ambient `ANTHROPIC_API_KEY` (direct Anthropic) or `ANTHROPIC_BASE_URL` +
-   `ANTHROPIC_AUTH_TOKEN` — accepted only when the host is really Anthropic's;
-   a gateway route needs `"judge": {"trust_ambient_route": true}` to opt in.
-
-**A key alone is enough**: `api_key` without `base_url` (in the config file or
-as `SIDEEYE_JUDGE_API_KEY`) means "talk to Anthropic direct"
-(`https://api.anthropic.com`) — the common case for a user with an API key and
-no gateway. Set `base_url` only when the judge sits behind a gateway.
-
-Check what you'd get, without spending: `sideeye route` (exit 0 = ready).
-
-### First run
+Check the judge route without spending:
 
 ```bash
-sideeye route                      # must say "verdict: OK"
-```
-```
-/sideeye:ask --validate                            # free: is the route ready? ($0)
-/sideeye:ask is my last change sound?              # cents, scoped to recent turns
-/sideeye:ask --all                                 # full-session review, median ~$0.75
+sideeye route          # must say: verdict: OK
 ```
 
-Both spend real money. Observed on 20 dogfood reviews: `advise` ≈ $0.02–$1,
-`review` ≈ median $0.75, up to ~$3.50 on big sessions (defaults: Opus 4.8 for
-`review`, Fable 5 for `advise`; `--model fable|opus|sonnet|haiku` to choose,
-`--max-cost N` as a ceiling).
+### Judge route
 
-The engine is still POC-grade in places, but it runs for real: 165 offline
-tests, and the capture → judge → verdict → cost pipeline is verified on real
-sessions. It is plain Python glue — deliberately: the perf-critical hot path is
-the gateway (Rust/praxis); the judge worker is I/O-bound (one multi-second LLM
-call), so language choice is irrelevant off-path. See
-[`docs/sideeye-phase-c-questions.md`](docs/sideeye-phase-c-questions.md) for
-the design decisions this implements.
+The judge must be a real, stronger route — never the cheap model that drafted
+the session. Resolution order:
+
+1. `--base-url`
+2. `SIDEEYE_JUDGE_BASE_URL` + `SIDEEYE_JUDGE_API_KEY`
+3. `~/.config/sideeye/config.json` (or `$SIDEEYE_CONFIG`)
+4. ambient `ANTHROPIC_API_KEY`, or `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`
+
+A key alone means “Anthropic direct”. A gateway route needs an explicit base URL.
+Ambient Anthropic credentials are not sent to a foreign base unless you set
+`judge.trust_ambient_route`.
+
+---
+
+## Use it
+
+### OpenCode
+
+The plugin adds a native TUI command and a server command:
+
+```text
+/sideeye                         # free estimate
+/sideeye --confirm               # submit to the judge
+/sideeye focus on security       # focus instructions
+/sideeye --confirm focus on security
+/sideeye-review                  # server command
+```
+
+Flow:
+
+```text
+OpenCode export -> ReviewPacket -> redact -> budget -> estimate -> judge -> verdict
+```
+
+The verdict is inserted as a structured record. The drafting model does not
+paraphrase it.
+
+### Claude Code
+
+```text
+/sideeye:ask --validate                     # free route check
+/sideeye:ask is my last change sound?       # scoped second opinion
+/sideeye:ask --all                          # full-session review
+```
+
+### Codex
+
+Codex sessions are supported through the CLI adapter:
+
+```bash
+sideeye review --client codex
+```
+
+A native Codex skill/plugin is tracked work; manual rollout paths are not the
+target UX.
+
+### CLI
+
+```bash
+sideeye review                 # full session + diff + evidence
+sideeye advise                 # recent scoped second opinion
+sideeye route                  # resolved judge route, no spend
+sideeye setup                  # configure credentials and harnesses
+```
+
+---
+
+## Rust engine
+
+The Rust workspace is the migration target:
+
+| Crate | Role |
+|---|---|
+| `sideeye-core` | `ReviewPacket`, `Verdict`, validation, redaction, budgeting |
+| `sideeye-capture` | harness adapters, currently OpenCode V2 export and git diff |
+| `sideeye-providers` | `JudgeProvider`, deterministic fake, Anthropic Messages |
+| `sideeye-cli` | `doctor`, `validate`, `packet`, `estimate`, `review` |
+
+```bash
+sideeye-rs doctor
+sideeye-rs validate packet.json
+sideeye-rs packet --opencode-export export.json --redact \
+  --repo . --touched-file src/parser.rs
+sideeye-rs estimate packet.json --model claude-opus-4-8
+sideeye-rs review packet.json --provider anthropic --model claude-opus-4-8
+```
+
+Python remains the fallback and the behavioral oracle until cross-harness
+parity is proven. See [`docs/rust-core.md`](docs/rust-core.md).
+
+---
+
+## Safety invariants
+
+- **No self-grading.** A judge that generated any turn in the packet is refused.
+- **Redaction before remote judging.** Credential-shaped values are replaced.
+- **Context guard.** Oversized packets fail before spend.
+- **Budgeting.** Transcripts and diffs are trimmed by salience, and the packet
+  says when its view is partial.
+- **Estimate then confirm.** The first invocation is free and never calls the
+  judge.
+- **Separate streams.** Random benchmark samples, human escalations, and dogfood
+  reviews are never pooled.
+- **Raw verdicts.** Structured records are stored and displayed without model
+  paraphrase.
+
+---
+
+## CI/CD
+
+- CI: Rust format/tests/clippy/release build, Python tests/version/demo checks,
+  OpenCode plugin typecheck/build/tests/package.
+- CD: tag `v*` publishes Linux x86_64 and macOS arm64 binaries, SHA-256
+  checksums, Python wheel/sdist, and the OpenCode plugin tarball.
+- Pages: `docs/` publishes the demo and docs.
+
+See [`docs/releasing.md`](docs/releasing.md).
+
+---
+
+## Development
+
+```bash
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+pytest -q
+(cd integrations/opencode && npm ci && npm run typecheck && npm test)
+```
+
+Current coverage: **169 Python tests**, **36 Rust tests**, **7 OpenCode plugin
+tests**.
+
+---
 
 ## Layout
 
-```
-sideeye/
-  rubric/rubric_v3.md            pair-grading rubric (Phase B)
-  rubric/rubric_session_v2.md    session-grading rubric — default for `sideeye review`
-  rubric/rubric_advice_v1.md     default for `sideeye advise`
-  config.py                      judge-route resolution chain + cheap-route guards
-  judge/schema.py                verdict schema + validation + is_flagged()
-  judge/transcript.py            capture-agnostic SessionTranscript (the pipe)
-  judge/judge.py                 forced-tool-call structured verdict; judge_session()
-  adapters/codex_rollout.py      adapter #1: Codex rollout log -> SessionTranscript
-  adapters/claude_code.py        adapter #2: Claude Code transcript -> SessionTranscript
-  adapters/opencode.py           adapter #3: OpenCode V2 export -> SessionTranscript
-  integrations/opencode/         native OpenCode server/TUI plugin
-  configure.py                   one-command setup and harness detection
-  skills/                        Claude Code plugin skill (the /sideeye:ask router)
-  docs/                          pitch, MVP scope, phase-C design questions, cost distillation
-  record.py                      shared session-verdict record shape
-  run_judge.py                   Phase B: grade a JSONL of (prompt, answer) pairs
-  sampler.py                     Phase C: RANDOM stream — scan rollouts, judge, verdicts/sampled.jsonl
-  escalate.py                    Phase C: HUMAN stream — "ask the expensive model", verdicts/escalated.jsonl
-  cost_report.py                 the money story: counterfactual savings + quality, CLI + HTML
-  tests/                         unit tests (no network): 165 passing
-  data/                          seed_pairs, hard_tasks, ground_truth (fixtures)
-  verdicts/                      run output (gitignored)
+```text
+crates/                     Rust core, capture, providers, CLI
+adapters/                   Python Claude Code, Codex, OpenCode adapters
+judge/                      Python judge, schema, transcript
+integrations/opencode/      native OpenCode server/TUI plugin
+rubric/                     grading rubrics
+scripts/                    version, demo, and release checks
+docs/                       demo, architecture, scope, releasing
+configure.py                one-command setup
+escalate.py, advise.py      Python review/advice engines
 ```
 
-## The capture-agnostic pipe (the key design decision)
+---
 
-Every capture source produces a **`SessionTranscript`** (`judge/transcript.py`);
-the judge, sampler, and cost report only ever see that shape. So capture
-options are just adapters into one pipe:
+## Status and roadmap
 
-- **`codex_rollout`** — reads Codex's own session logs. In-scope, no praxis
-  changes, full session transcript. Caveat: it's the *client's* view — if the
-  gateway mutated the request, the log wouldn't show it.
-- **`claude_code`** — reads Claude Code's session transcripts
-  (`~/.claude/projects/`). What the skills and the default sampler use.
-- **gateway sampling tap** (production, not built): a praxis filter that
-  samples at request time and emits events (Rust, lives in the proxy repo);
-  the schema is designed so results carry over unchanged.
+Working today: Claude Code plugin, OpenCode native plugin, Codex CLI adapter,
+Rust contracts/capture/estimate/Anthropic judge, secure setup, releases, demo.
 
-## Phase B — pair judging (falsification gate) — DONE
+Next:
 
-```bash
-pytest tests -q                                         # 165 tests, no network
-python -m sideeye.run_judge --pairs data/seed_pairs.jsonl \
-    --ground-truth data/ground_truth.json               # needs a judge route
-```
-Result: judge caught 2/2 planted defects, 0/4 clean false-positives; on hard
-field-evidence tasks it correctly passed GLM's safe answers and flagged the
-truncated one. ~$0.008/pair on Sonnet 5.
+- cross-harness conformance CI ([#2](https://github.com/redhat-et/sideeye/issues/2))
+- provider-neutral Rust engine completion ([#3](https://github.com/redhat-et/sideeye/issues/3))
+- opt-in, privacy-preserving judge metrics ([#5](https://github.com/redhat-et/sideeye/issues/5))
+- native Codex UX
+- whole-repository review scope
+- raw verdict viewer and scoreboard
+- OpenClaw adapter ([#7](https://github.com/redhat-et/sideeye/issues/7))
 
-## Phase C — automatic capture + escalation
+---
 
-Two verdict streams, kept **separate** (escalations are an adversarial sample and
-must never skew the random-sample scoreboard):
+## Docs
 
-```bash
-# RANDOM stream — unbiased quality/savings estimate (Sonnet 5; --client claude|codex)
-python -m sideeye.sampler --idle-min 10 --sample-rate 1.0
+- [Demo](https://redhat-et.github.io/sideeye/)
+- [Rust core](docs/rust-core.md)
+- [OpenCode adapter](docs/opencode-adapter.md)
+- [Releasing](docs/releasing.md)
+- [MVP scope](docs/sideeye-mvp-scope.md)
+- [Design questions](docs/sideeye-phase-c-questions.md)
+- [Cost story](docs/cost-savings-distilled.md)
 
-# HUMAN stream — "I'm not sure, ask the expensive model" (Opus 4.8 by default)
-sideeye review                        # == python -m sideeye.escalate, tier-1
-sideeye review --model fable          # the nasty ones
+## License
 
-# The money story (counterfactual savings + held quality; CLI + HTML)
-python -m sideeye.cost_report --html verdicts/cost-report.html
-```
-
-Escalation is **review, not re-answer**; it carries a **tier knob** (tier-1
-transcript review = default; tier-2 agentic "run the code" = the only tier that
-catches execution-dependent defects, and is a sandboxed worker, not a script —
-not built in this POC, and it refuses honestly if asked).
-
-The whole pipeline (capture → judge → verdict → cost) is verified end-to-end on
-real Codex rollouts and Claude Code sessions. On the dogfood deployment the
-judge route points at the metered gateway, so judge spend shows on the
-dashboard; for any other user it's just their Claude route (see Configure).
-
-## Rules honored
-
-- Secrets from env or a local (untracked) key file only — never hardcoded,
-  committed, or logged.
-- In the reference deployment the judge routes through the metered gateway, so
-  judge spend is visible on the dashboard; the draft model is self-hosted and
-  costs $0.
-- Counterfactual savings are labeled estimates, not measurements.
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
