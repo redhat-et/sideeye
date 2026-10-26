@@ -54,6 +54,7 @@ pub(crate) fn install_opencode_plugin(
     repo: Option<&Path>,
     model: &str,
     max_tokens: u32,
+    provider: &str,
 ) -> Result<PathBuf, String> {
     let destination = data_root().join("opencode-plugin");
     fs::create_dir_all(&destination)
@@ -90,6 +91,7 @@ pub(crate) fn install_opencode_plugin(
         "command": [python],
         "model": model,
         "maxTokens": max_tokens,
+        "provider": provider,
     });
     if let Some(rust) = rust {
         options["engine"] = json!("rust");

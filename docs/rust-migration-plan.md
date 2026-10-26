@@ -122,16 +122,17 @@ plugin options, free route verification, and noninteractive failure.
 Gate: the maintainer runs the OpenCode flow end to end and confirms that
 nothing is missing.
 
-### Phase 3 — provider-neutral judging (item 11)
+### Phase 3 — provider-neutral judging (item 11, 0.6.6)
 
-- OpenAI-compatible Chat Completions provider;
-- local provider support through the same OpenAI-compatible boundary
-  (Ollama, LM Studio, vLLM, gateways);
-- provider selection in config, CLI, and setup;
-- provider-specific estimate behavior (count_tokens when available, labeled
-  heuristic otherwise, local = zero direct cost);
-- same verdict contract, redaction, guards, and provenance across providers;
-- provider conformance fixtures and tests.
+- [x] OpenAI-compatible Chat Completions provider;
+- [x] local provider support through the same OpenAI-compatible boundary
+      (Ollama, LM Studio, vLLM, gateways);
+- [x] provider selection in config, CLI, and setup;
+- [x] provider-specific estimate behavior (exact count_tokens for Anthropic,
+      labeled heuristic and unknown pricing for OpenAI-compatible);
+- [x] same verdict contract, redaction, guards, and provenance across providers;
+- [x] provider conformance tests: tool-call parsing, JSON-content fallback,
+      truncation, CLI end to end, setup with a local route.
 
 Gate: the same packet can be judged through Anthropic and an OpenAI-compatible
 local/gateway route with the same validated verdict contract.
@@ -173,10 +174,10 @@ all three harnesses pass end to end; the local metrics ledger and stats work.
 
 ## Test coverage target
 
-Current (0.6.5 development):
+Current (0.6.6 development):
 
 - Python: 169 tests.
-- Rust: 51 tests.
+- Rust: 58 tests.
 - OpenCode plugin: 10 tests.
 
 The Rust suite must reach behavioral parity, not merely the same count. Track

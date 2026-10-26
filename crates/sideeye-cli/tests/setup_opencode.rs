@@ -87,6 +87,7 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
     assert_eq!(plugin["options"]["command"][0], "sideeye-py");
     assert_eq!(plugin["options"]["model"], "claude-opus-5-5");
     assert_eq!(plugin["options"]["maxTokens"], 4096);
+    assert_eq!(plugin["options"]["provider"], "anthropic");
     assert!(data.join("opencode-plugin/src/index.ts").is_file());
     assert!(data.join("opencode-plugin/package.json").is_file());
 

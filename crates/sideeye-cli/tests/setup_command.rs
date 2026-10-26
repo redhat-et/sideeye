@@ -115,6 +115,66 @@ fn setup_verify_uses_the_free_token_count_endpoint() {
 }
 
 #[test]
+fn setup_supports_an_openai_compatible_local_provider() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind fake local judge");
+    let address = listener.local_addr().expect("fake local address");
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept models probe");
+        let mut request = [0_u8; 8192];
+        let _ = stream.read(&mut request);
+        let body = r#"{"data":[]}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("write response");
+    });
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = dir.path().join("sideeye.json");
+    let base = format!("http://{address}");
+    let output = Command::new(bin())
+        .env("SIDEEYE_CONFIG", &config)
+        .env_remove("SIDEEYE_JUDGE_API_KEY")
+        .env_remove("SIDEEYE_JUDGE_BASE_URL")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .args([
+            "setup",
+            "--provider",
+            "openai-compatible",
+            "--judge-base-url",
+            &base,
+            "--judge-api-key",
+            "local",
+            "--model",
+            "local-test",
+            "--no-opencode",
+            "--yes",
+            "--verify",
+        ])
+        .output()
+        .expect("run setup");
+    server.join().expect("fake local thread");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Judge provider: openai-compatible"));
+    assert!(stdout.contains("Free judge check: OK (route reachable"));
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config).expect("read config")).expect("json");
+    assert_eq!(saved["judge"]["provider"], "openai-compatible");
+    assert_eq!(saved["judge"]["base_url"], base);
+    assert_eq!(saved["judge"]["api_key"], "local");
+}
+
+#[test]
 fn saved_judge_route_wins_over_ambient_anthropic_base() {
     let dir = tempfile::tempdir().expect("tempdir");
     let config = dir.path().join("sideeye.json");

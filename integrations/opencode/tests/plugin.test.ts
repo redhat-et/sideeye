@@ -120,6 +120,8 @@ test("estimate shows the scope and the matching confirmation command", () => {
   const all = testHelpers.formatEstimate(estimate, "", "all")
   assert.match(all, /scope: whole session · 2 turns/)
   assert.match(all, /Run \/sideeye all --confirm/)
+  const unknown = testHelpers.formatEstimate({...estimate, cost_known: false}, "", "all")
+  assert.match(unknown, /estimated cost: unknown \(provider pricing not configured\)/)
 })
 
 test("review export estimates first and requires explicit confirmation", async () => {
@@ -189,7 +191,7 @@ test("rust engine builds a packet, estimates, then reviews on confirm", async ()
       ]},
     ],
   }
-  const options = {engine: "rust", rust: [process.execPath, engine]}
+  const options = {engine: "rust", rust: [process.execPath, engine], provider: "openai-compatible"}
 
   const estimate = await testHelpers.reviewExport(session, data, options)
   assert.match(estimate, /estimate \(no judge call made\)/i)
@@ -199,6 +201,7 @@ test("rust engine builds a packet, estimates, then reviews on confirm", async ()
 
   const verdict = await testHelpers.reviewExport(session, data, options, "focus on security --confirm")
   assert.match(verdict, /rust fixture verdict/)
+  assert.match(verdict, /--provider openai-compatible/)
   assert.match(verdict, /--instructions focus on security/)
   assert.match(verdict, /--out /)
 })
