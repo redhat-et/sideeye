@@ -176,10 +176,10 @@ all three harnesses pass end to end; the local metrics ledger and stats work.
 
 ## Test coverage target
 
-Current (0.6.7 development):
+Current (0.6.8 development):
 
 - Python: 169 tests.
-- Rust: 71 tests.
+- Rust: 72 tests.
 - OpenCode plugin: 10 tests.
 
 The Rust suite must reach behavioral parity, not merely the same count. Track

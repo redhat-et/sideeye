@@ -1,3 +1,4 @@
+use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -184,5 +185,43 @@ fn codex_session_reviews_through_an_openai_compatible_route() {
     assert_eq!(verdict["judge_provider"], "openai-compatible");
     assert_eq!(verdict["score"], 4);
     let saved = std::fs::read_to_string(out).expect("out file");
+    assert!(saved.contains("session fixture"));
+}
+
+#[test]
+fn session_reviews_persist_to_the_default_ledger() {
+    let (base, server) = fake_judge();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("home");
+    let output = Command::new(env!("CARGO_BIN_EXE_sideeye"))
+        .env("HOME", &home)
+        .env("SIDEEYE_JUDGE_API_KEY", "local")
+        .env_remove("SIDEEYE_JUDGE_BASE_URL")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .args([
+            "session",
+            "--client",
+            "claude",
+            "--rollout",
+            fixture("sample_claude_session.jsonl").to_str().unwrap(),
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            &base,
+            "--model",
+            "local-test",
+            "--no-code",
+        ])
+        .output()
+        .expect("run session");
+    server.join().expect("fake judge thread");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ledger = home.join(".local/share/sideeye/claude-verdicts.jsonl");
+    let saved = fs::read_to_string(ledger).expect("default ledger");
+    assert!(saved.contains("record_id"));
     assert!(saved.contains("session fixture"));
 }
