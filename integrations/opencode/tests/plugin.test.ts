@@ -142,7 +142,7 @@ test("rust engine builds a packet, estimates, then reviews on confirm", async ()
     "    source: 'opencode', client: 'opencode', generator_model: 'g', task: 'task',",
     "    turns: [{role: 'user', text: 'task'}], artifacts: [], generation_usage: null",
     "  } : command === 'estimate' ? {",
-    "    input_tokens: 10, estimated_cost_usd: 0.01, model: 'claude-opus-4-8', max_tokens: 2048",
+    "    input_tokens: 10, estimated_cost_usd: 0.01, model: 'claude-opus-4-8', max_tokens: 2048, turns: 2, artifacts: 1, has_diff: true, diff_complete: true",
     "  } : { score: 5, correctness: 'correct', claims_supported: true, summary: 'rust fixture verdict ' + process.argv.slice(2).join(' ') };",
     "  process.stdout.write(JSON.stringify(payload) + '\\n');",
     "});",
@@ -163,10 +163,37 @@ test("rust engine builds a packet, estimates, then reviews on confirm", async ()
   const estimate = await testHelpers.reviewExport(session, data, options)
   assert.match(estimate, /estimate \(no judge call made\)/i)
   assert.match(estimate, /rust \(max 2048 output tokens\)/)
+  assert.match(estimate, /scope: 2 turns · git diff \(1 artifact\(s\), complete\)/)
 
   const verdict = await testHelpers.reviewExport(session, data, options, "focus on security --confirm")
   assert.match(verdict, /rust fixture verdict/)
   assert.match(verdict, /--instructions focus on security/)
+  assert.match(verdict, /--out /)
+})
+
+test("rust engine call times out instead of hanging", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-timeout-"))
+  const repo = join(workspace, "project")
+  mkdirSync(repo)
+  git(repo, ["init", "-q"])
+  git(repo, ["config", "user.email", "test@example.invalid"])
+  git(repo, ["config", "user.name", "Side-Eye Test"])
+  const file = join(repo, "answer.txt")
+  writeFile(file, "base\n")
+  git(repo, ["add", "answer.txt"])
+  git(repo, ["commit", "-qm", "base"])
+  const engine = join(workspace, "slow-engine.mjs")
+  writeFile(engine, "setTimeout(() => {}, 5000)\n")
+  const data = {
+    info: {id: "ses-slow", model: {providerID: "openai", id: "gpt-test"}},
+    messages: [{type: "user", text: "task"}],
+  }
+  const result = await testHelpers.reviewExport(
+    {location: {directory: repo}},
+    data,
+    {engine: "rust", rust: [process.execPath, engine], timeoutMs: 100},
+  )
+  assert.match(result, /timed out after 100ms/i)
 })
 
 test("server command path accepts recorded SessionMessageInfo[] data", async () => {
