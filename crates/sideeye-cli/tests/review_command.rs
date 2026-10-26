@@ -9,6 +9,8 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn fake_provider_executes_packet_and_emits_provenance() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("verdicts.jsonl");
     let output = Command::new(env!("CARGO_BIN_EXE_sideeye"))
         .args([
             "review",
@@ -16,6 +18,8 @@ fn fake_provider_executes_packet_and_emits_provenance() {
             "fake",
             "--fixture",
             fixture("python-verdict.json").to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
             fixture("review-packet.json").to_str().unwrap(),
         ])
         .output()
@@ -32,6 +36,10 @@ fn fake_provider_executes_packet_and_emits_provenance() {
     assert_eq!(verdict["judge_provider"], "fake");
     assert_eq!(verdict["judge_model"], "fixture-judge");
     assert_eq!(verdict["score"], 3);
+    let saved = std::fs::read_to_string(out).expect("out file");
+    let record: serde_json::Value = serde_json::from_str(saved.trim()).expect("record");
+    assert_eq!(record["session_id"], "session-golden-1");
+    assert_eq!(record["verdict"]["score"], 3);
 }
 
 #[test]

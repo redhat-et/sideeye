@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "node:fs"
-import { dirname, isAbsolute, resolve } from "node:path"
+import { dirname, isAbsolute, join, resolve } from "node:path"
+import { homedir } from "node:os"
 import { spawn } from "node:child_process"
 import type { CommandInvocation } from "@opencode/plugin/promise/command"
 import type { Context as ServerContext } from "@opencode/plugin/promise/plugin"
@@ -95,11 +96,16 @@ async function reviewWithRust(
   const maxTokens = Number.isInteger(options.maxTokens) ? String(options.maxTokens) : "2048"
   const args = [...rust.slice(1)]
   const focus = instructions ? ["--instructions", instructions] : []
+  const timeoutMs = Number.isInteger(options.timeoutMs) ? Number(options.timeoutMs) : 300000
+  const outPath =
+    typeof options.out === "string"
+      ? options.out
+      : join(homedir(), ".local", "share", "sideeye", "opencode-verdicts.jsonl")
   const touched = touchedFiles.flatMap((file) => ["--touched-file", String(file.path)])
   const packetRun = await run(rust[0], [
     ...args, "packet", "--opencode-export", "-", "--redact",
     "--repo", repo, "--diff-base", diffBase, ...touched,
-  ], JSON.stringify(data), repo)
+  ], JSON.stringify(data), repo, timeoutMs)
   if (packetRun.code !== 0) {
     return `Side-Eye packet build failed before producing a verdict.\n\n${packetRun.stderr || packetRun.stdout}`
   }
@@ -109,7 +115,7 @@ async function reviewWithRust(
 
   const estimate = await run(rust[0], [
     ...args, "estimate", "-", "--model", model, "--max-tokens", maxTokens, ...focus,
-  ], packetJson, repo)
+  ], packetJson, repo, timeoutMs)
   if (estimate.code !== 0) {
     return `Side-Eye estimate failed before producing a verdict.\n\n${estimate.stderr || estimate.stdout}`
   }
@@ -120,7 +126,8 @@ async function reviewWithRust(
   const out = await run(rust[0], [
     ...args, "review", "-", "--provider", "anthropic",
     "--model", model, "--max-tokens", maxTokens, ...focus,
-  ], packetJson, repo)
+    "--out", outPath,
+  ], packetJson, repo, timeoutMs)
   if (out.code !== 0) {
     return `Side-Eye review failed before producing a verdict.\n\n${out.stderr || out.stdout}`
   }
@@ -231,7 +238,10 @@ function formatEstimate(estimate: AnyRecord, instructions = ""): string {
     `  estimated cost: $${Number(estimate.estimated_cost_usd ?? 0).toFixed(4)}`,
     `  input tokens: ${estimate.input_tokens ?? "unknown"}${estimate.exact === false ? " (estimated)" : ""}`,
     `  code: ${estimate.adapter_version ?? (estimate.max_tokens ? `rust (max ${estimate.max_tokens} output tokens)` : "unknown")}`,
-    ...(instructions ? [`  focus: ${instructions}`] : []),
+    ...(typeof estimate.turns === "number"
+      ? [`  scope: ${estimate.turns} turns · ${estimate.has_diff ? `git diff (${estimate.artifacts} artifact(s), ${estimate.diff_complete ? "complete" : "partial"})` : "narrative only"}`]
+      : []),
+    ...(instructions ? [`  request: ${instructions}`] : []),
     "",
     `Run /sideeye --confirm${instructions ? ` ${instructions}` : ""} to submit this packet to the judge.`,
   ].join("\n")
@@ -374,19 +384,25 @@ function lastJsonLine(output: string): AnyRecord | undefined {
   return undefined
 }
 
-function run(command: string, args: string[], input: string, cwd: string): Promise<{
+function run(command: string, args: string[], input: string, cwd: string, timeoutMs = 300000): Promise<{
   code: number
   stdout: string
   stderr: string
 }> {
-  return runProcess(command, args, cwd, input).then((result) => ({
+  return runProcess(command, args, cwd, input, timeoutMs).then((result) => ({
     code: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
   }))
 }
 
-function runProcess(command: string, args: string[], cwd: string, input = ""): Promise<{
+function runProcess(
+  command: string,
+  args: string[],
+  cwd: string,
+  input = "",
+  timeoutMs = 300000,
+): Promise<{
   status: number
   stdout: string
   stderr: string
@@ -395,6 +411,18 @@ function runProcess(command: string, args: string[], cwd: string, input = ""): P
     const child = spawn(command, args, { cwd, env: process.env })
     let stdout = ""
     let stderr = ""
+    let settled = false
+    const finish = (status: number, extra = "") => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolveResult({ status, stdout, stderr: stderr + extra })
+    }
+    const timer = setTimeout(() => {
+      if (settled) return
+      child.kill("SIGKILL")
+      finish(1, `\nsideeye: timed out after ${timeoutMs}ms`)
+    }, timeoutMs)
     child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString() })
     child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString() })
     child.on("error", reject)
@@ -404,7 +432,7 @@ function runProcess(command: string, args: string[], cwd: string, input = ""): P
       // the actionable Side-Eye error.
       if (error.code !== "EPIPE") stderr += `\n${error.message}`
     })
-    child.on("close", (code: number | null) => resolveResult({ status: code ?? 1, stdout, stderr }))
+    child.on("close", (code: number | null) => finish(code ?? 1))
     if (input) child.stdin.end(input)
     else child.stdin.end()
   })

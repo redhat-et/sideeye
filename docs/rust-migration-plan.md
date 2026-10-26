@@ -70,21 +70,37 @@ Gate: isolated tests cover secure config, JSONC preservation, plugin install,
 plugin options, and noninteractive failure. `sideeye setup` was run on a real
 profile and produced the expected OpenCode configuration.
 
-### Phase 2 — Rust capture parity
+### Phase 2 — OpenCode completion (current)
 
-Port:
+Finish the OpenCode product path before touching Claude Code or Codex.
+
+- [x] Native `/sideeye` and `/sideeye-review`.
+- [x] Rust engine selected by setup.
+- [x] Estimate then confirm, with free-text focus.
+- [x] Diff base, redaction, budgeting, context guard, self-grading guard.
+- [x] Plugin install and JSONC/profile detection.
+- [x] Raw verdict inserted without paraphrase.
+- [x] Show packet scope in the estimate: turns, diff artifact, complete/partial.
+- [x] Persist the raw verdict record outside the model context.
+- [x] Enforce a hard timeout on the plugin's engine/judge call.
+- [ ] Isolated OpenCode smoke test with a fake judge (no network).
+- [ ] Manual acceptance test by the maintainer: estimate, confirm, verdict,
+      error paths, focus text, multi-repo selection.
+
+Gate: the maintainer runs the OpenCode flow end to end and confirms that
+nothing is missing. Claude Code and Codex work does not start until this gate
+passes.
+
+### Phase 3 — Claude Code and Codex capture parity
 
 - Claude Code transcript adapter;
 - Codex rollout adapter;
 - current-session resolution (including `CLAUDE_CODE_SESSION_ID`);
-- recent-exchange scoping for `advise`;
 - code artifact parity (manifests, partial views, generated files).
 
 Gate: golden fixtures from the Python adapters parse identically in Rust.
 
-### Phase 3 — Rust CLI surfaces
-
-Port:
+### Phase 4 — Rust CLI surfaces
 
 - `sideeye review` session mode (not just packet mode);
 - `sideeye advise`;
@@ -94,7 +110,7 @@ Port:
 
 Gate: Claude Code, Codex, and OpenCode can run without Python.
 
-### Phase 4 — conformance and cutover
+### Phase 5 — conformance and cutover
 
 - Run Python and Rust against the same fixtures and real sessions.
 - Cross-harness CI with isolated HOME/config/repo per harness.
@@ -105,7 +121,7 @@ Gate: Rust tests cover at least the same behaviors as Python; all golden
 fixtures pass; all three harnesses pass end to end; the release artifact
 installs and runs.
 
-### Phase 5 — delete Python
+### Phase 6 — delete Python
 
 - Remove the Python console entrypoint and package.
 - Delete Python adapters/judge/sampler/cost code.
@@ -118,7 +134,7 @@ installs and runs.
 Current:
 
 - Python: 169 tests.
-- Rust: 36 tests.
+- Rust: 45 tests.
 - OpenCode plugin: 7 tests.
 
 The Rust suite must reach behavioral parity, not merely the same count. Track
@@ -139,10 +155,11 @@ not delete the oracle before the gate.
 1. Plan + wording (this document).
 2. Rename binary and Python entrypoint.
 3. Port setup to Rust.
-4. Port Claude Code and Codex capture.
-5. Port advise and session review.
-6. Conformance matrix.
-7. Delete Python.
+4. Complete OpenCode and pass the maintainer acceptance gate.
+5. Port Claude Code and Codex capture.
+6. Port advise and session review.
+7. Conformance matrix.
+8. Delete Python.
 
 ## Versioning policy
 

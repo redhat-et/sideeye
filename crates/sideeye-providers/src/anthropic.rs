@@ -36,6 +36,10 @@ pub struct Estimate {
     pub estimated_cost_usd: f64,
     pub model: String,
     pub max_tokens: u32,
+    pub turns: usize,
+    pub artifacts: usize,
+    pub has_diff: bool,
+    pub diff_complete: bool,
 }
 
 pub struct AnthropicProvider {
@@ -171,11 +175,20 @@ impl AnthropicProvider {
         ensure_fits(input_tokens, self.max_tokens as u64, &self.model)?;
         let (input_price, output_price) = pricing(&self.model);
         let cost = input_tokens as f64 * input_price + self.max_tokens as f64 * output_price;
+        let diffs = packet
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.kind == "git_diff");
+        let artifacts = diffs.clone().count();
         Ok(Estimate {
             input_tokens,
             estimated_cost_usd: (cost * 1_000_000.0).round() / 1_000_000.0,
             model: self.model.clone(),
             max_tokens: self.max_tokens,
+            turns: packet.turns.len(),
+            artifacts,
+            has_diff: artifacts > 0,
+            diff_complete: diffs.clone().all(|artifact| artifact.complete),
         })
     }
 

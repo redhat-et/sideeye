@@ -122,6 +122,9 @@ enum Command {
         /// Extra focus for the judge, e.g. "security vulnerabilities".
         #[arg(long)]
         instructions: Option<String>,
+        /// Append the raw verdict record to this JSONL file.
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
 }
 
@@ -177,6 +180,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             rubric,
             max_tokens,
             instructions,
+            out,
         } => review(
             packet,
             provider,
@@ -186,6 +190,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             rubric,
             max_tokens,
             instructions,
+            out,
         ),
     }
 }
@@ -200,6 +205,7 @@ fn review(
     rubric: Option<PathBuf>,
     max_tokens: u32,
     instructions: Option<String>,
+    out: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let packet: ReviewPacket = serde_json::from_str(&read_input(path)?)?;
     let packet = packet.redacted();
@@ -223,6 +229,21 @@ fn review(
         }
     };
     verdict.validate()?;
+    if let Some(path) = out {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let record = serde_json::json!({
+            "session_id": packet.session_id,
+            "source": packet.source,
+            "verdict": verdict,
+        });
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+        writeln!(file, "{}", serde_json::to_string(&record)?)?;
+    }
     println!("{}", serde_json::to_string(&verdict)?);
     Ok(())
 }
