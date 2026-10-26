@@ -87,6 +87,7 @@ async function reviewWithRust(
   estimateHint: boolean,
 ): Promise<string> {
   const rust = Array.isArray(options.rust) ? options.rust : [options.rust ?? "sideeye"]
+  const provider = typeof options.provider === "string" ? options.provider : "anthropic"
   const model = typeof options.model === "string" ? options.model : "claude-opus-4-8"
   const maxTokens = Number.isInteger(options.maxTokens) ? String(options.maxTokens) : "4096"
   const args = [...rust.slice(1)]
@@ -110,7 +111,8 @@ async function reviewWithRust(
   const packetJson = JSON.stringify(packet)
 
   const estimate = await run(rust[0], [
-    ...args, "estimate", "-", "--model", model, "--max-tokens", maxTokens, ...focus,
+    ...args, "estimate", "-", "--provider", provider,
+    "--model", model, "--max-tokens", maxTokens, ...focus,
   ], packetJson, repo, timeoutMs)
   if (estimate.code !== 0) {
     return `Side-Eye estimate failed before producing a verdict.\n\n${estimate.stderr || estimate.stdout}`
@@ -120,7 +122,7 @@ async function reviewWithRust(
   if (!confirm) return formatEstimate(estimateRecord, instructions, scope, estimateHint)
 
   const out = await run(rust[0], [
-    ...args, "review", "-", "--provider", "anthropic",
+    ...args, "review", "-", "--provider", provider,
     "--model", model, "--max-tokens", maxTokens, ...focus,
     "--out", outPath,
   ], packetJson, repo, timeoutMs)
@@ -143,7 +145,7 @@ export function formatEstimate(
   const hint = `Run /sideeye ${scopeToken}--confirm${instructions ? ` ${instructions}` : ""} to submit this packet to the judge.`
   return [
     "Side-Eye estimate (no judge call made):",
-    `  estimated cost: $${Number(estimate.estimated_cost_usd ?? 0).toFixed(4)}`,
+    `  estimated cost: ${estimate.cost_known === false ? "unknown (provider pricing not configured)" : `$${Number(estimate.estimated_cost_usd ?? 0).toFixed(4)}`}`,
     `  input tokens: ${estimate.input_tokens ?? "unknown"}${estimate.exact === false ? " (estimated)" : ""}`,
     `  code: ${estimate.adapter_version ?? (estimate.max_tokens ? `rust (max ${estimate.max_tokens} output tokens)` : "unknown")}`,
     ...(typeof estimate.model === "string" ? [`  judge: ${estimate.model}`] : []),

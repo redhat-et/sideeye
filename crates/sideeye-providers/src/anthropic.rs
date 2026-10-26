@@ -40,6 +40,11 @@ pub struct Estimate {
     pub artifacts: usize,
     pub has_diff: bool,
     pub diff_complete: bool,
+    /// True when the provider returned an exact token count. OpenAI-compatible
+    /// routes without a count endpoint use a labeled heuristic.
+    pub exact: bool,
+    /// False when the provider has no pricing table; the cost is unknown.
+    pub cost_known: bool,
 }
 
 pub struct AnthropicProvider {
@@ -208,6 +213,8 @@ impl AnthropicProvider {
             artifacts,
             has_diff: artifacts > 0,
             diff_complete: diffs.clone().all(|artifact| artifact.complete),
+            exact: true,
+            cost_known: true,
         })
     }
 
@@ -290,6 +297,10 @@ impl JudgeProvider for AnthropicProvider {
         &self.model
     }
 
+    fn estimate(&self, packet: &ReviewPacket) -> Result<Estimate, ProviderError> {
+        AnthropicProvider::estimate(self, packet)
+    }
+
     fn judge(&self, packet: &ReviewPacket) -> Result<Verdict, ProviderError> {
         packet.validate()?;
         // Best-effort guard: some gateways do not implement count_tokens.
@@ -356,7 +367,7 @@ impl AnthropicProvider {
     }
 }
 
-fn render_packet(packet: &ReviewPacket) -> (String, String) {
+pub(crate) fn render_packet(packet: &ReviewPacket) -> (String, String) {
     let asked = packet.task.clone();
     let mut produced = String::new();
     for turn in &packet.turns {
@@ -485,41 +496,45 @@ fn pricing(model: &str) -> (f64, f64) {
     }
 }
 
+pub(crate) fn verdict_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "answered_what_was_asked": {"type": "boolean"},
+            "correctness": {"type": "string", "enum": ["correct", "partially_correct", "incorrect"]},
+            "claims_supported": {"type": "boolean"},
+            "score": {"type": "integer", "minimum": 1, "maximum": 5},
+            "issues": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string"},
+                        "severity": {"type": "string", "enum": ["minor", "major", "critical"]},
+                    },
+                    "required": ["description", "severity"],
+                },
+            },
+            "overall_severity": {"type": "string", "enum": ["none", "minor", "major", "critical"]},
+            "summary": {"type": "string"},
+        },
+        "required": [
+            "answered_what_was_asked",
+            "correctness",
+            "claims_supported",
+            "score",
+            "issues",
+            "overall_severity",
+            "summary",
+        ],
+    })
+}
+
 fn record_verdict_tool() -> Value {
     json!({
         "name": "record_verdict",
         "description": "Record the structured grading verdict for the response under review.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "answered_what_was_asked": {"type": "boolean"},
-                "correctness": {"type": "string", "enum": ["correct", "partially_correct", "incorrect"]},
-                "claims_supported": {"type": "boolean"},
-                "score": {"type": "integer", "minimum": 1, "maximum": 5},
-                "issues": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "description": {"type": "string"},
-                            "severity": {"type": "string", "enum": ["minor", "major", "critical"]},
-                        },
-                        "required": ["description", "severity"],
-                    },
-                },
-                "overall_severity": {"type": "string", "enum": ["none", "minor", "major", "critical"]},
-                "summary": {"type": "string"},
-            },
-            "required": [
-                "answered_what_was_asked",
-                "correctness",
-                "claims_supported",
-                "score",
-                "issues",
-                "overall_severity",
-                "summary",
-            ],
-        },
+        "input_schema": verdict_schema(),
     })
 }
 

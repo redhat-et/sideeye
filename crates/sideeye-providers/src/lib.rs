@@ -8,13 +8,24 @@ use sideeye_core::{ContractError, ReviewPacket, Verdict};
 use thiserror::Error;
 
 mod anthropic;
+mod openai;
 
 pub use anthropic::{AnthropicProvider, Estimate};
+pub use openai::OpenAiProvider;
 
 pub trait JudgeProvider {
     fn provider_name(&self) -> &str;
     fn model_name(&self) -> &str;
     fn judge(&self, packet: &ReviewPacket) -> Result<Verdict, ProviderError>;
+
+    /// Estimate input tokens and cost without judging. Providers that cannot
+    /// estimate cheaply return a configuration error instead of spending.
+    fn estimate(&self, _packet: &ReviewPacket) -> Result<Estimate, ProviderError> {
+        Err(ProviderError::Configuration(format!(
+            "{} does not support pre-spend estimates",
+            self.provider_name()
+        )))
+    }
 }
 
 #[derive(Debug, Error)]

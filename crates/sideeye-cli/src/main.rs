@@ -11,7 +11,7 @@ use std::os::unix::fs::PermissionsExt;
 mod setup_ext;
 
 use clap::{Parser, Subcommand};
-use dialoguer::{Confirm, Input};
+use dialoguer::{Confirm, Input, Select};
 use serde_json::Value;
 use sideeye_core::ReviewPacket;
 use sideeye_providers::{FakeJudgeProvider, JudgeProvider};
@@ -48,11 +48,14 @@ enum Command {
         /// Judge model to check with --verify.
         #[arg(long, default_value = "claude-opus-4-8")]
         model: String,
+        /// Provider to check: `anthropic` or `openai-compatible`.
+        #[arg(long)]
+        provider: Option<String>,
     },
     /// Configure the judge route and install the harness plugin.
     #[command(
-        long_about = "Configure Side-Eye in one guided flow.\n\nIn a terminal, setup asks only for what it needs, installs the detected harness plugin, and can verify the judge route with a free token-count call. The API key prompt is hidden and the key is never printed. Use --yes for scripts.",
-        after_help = "Examples:\n  sideeye setup\n  sideeye setup --repo ~/code/project\n  sideeye setup --model claude-opus-4-8 --max-tokens 4096\n  sideeye setup --judge-base-url https://gateway.example --no-opencode --yes\n\nThe key can also come from SIDEEYE_JUDGE_API_KEY; the base URL from SIDEEYE_JUDGE_BASE_URL."
+        long_about = "Configure Side-Eye in one guided flow.\n\nIn a terminal, setup asks only for what it needs, installs the detected harness plugin, and can verify the judge route with a free check (`count_tokens` or `/v1/models`). The API key prompt is hidden and the key is never printed. Use --yes for scripts.",
+        after_help = "Examples:\n  sideeye setup\n  sideeye setup --repo ~/code/project\n  sideeye setup --model claude-opus-4-8 --max-tokens 4096\n  sideeye setup --provider openai-compatible --judge-base-url http://127.0.0.1:11434 --judge-api-key local --model qwen2.5-coder\n  sideeye setup --judge-base-url https://gateway.example --no-opencode --yes\n\nThe key can also come from SIDEEYE_JUDGE_API_KEY; the base URL from SIDEEYE_JUDGE_BASE_URL."
     )]
     Setup {
         /// Judge base URL override.
@@ -67,6 +70,9 @@ enum Command {
         /// Git repository root the OpenCode session should review.
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Judge provider: `anthropic` or `openai-compatible`.
+        #[arg(long, default_value = "anthropic")]
+        provider: String,
         /// Judge model id written to the plugin options.
         #[arg(long, default_value = "claude-opus-4-8")]
         model: String,
@@ -76,10 +82,10 @@ enum Command {
         /// Accept the supplied/default answers without interactive prompts.
         #[arg(long)]
         yes: bool,
-        /// Run a free count_tokens check after writing the config.
+        /// Run a free route check after writing the config.
         #[arg(long)]
         verify: bool,
-        /// Skip the free count_tokens check in the interactive wizard.
+        /// Skip the free route check in the interactive wizard.
         #[arg(long)]
         no_verify: bool,
     },
@@ -116,6 +122,9 @@ enum Command {
     Estimate {
         /// JSON packet path, or `-` for stdin.
         packet: PathBuf,
+        /// Provider: `anthropic` or `openai-compatible`.
+        #[arg(long, default_value = "anthropic")]
+        provider: String,
         /// Judge base URL override.
         #[arg(long)]
         base_url: Option<String>,
@@ -136,16 +145,16 @@ enum Command {
     Review {
         /// JSON packet path, or `-` for stdin.
         packet: PathBuf,
-        /// Provider to use: `fake` or `anthropic`.
+        /// Provider: `fake`, `anthropic`, or `openai-compatible`.
         #[arg(long, default_value = "fake")]
         provider: String,
         /// Fixture verdict JSON. Required by the fake provider.
         #[arg(long)]
         fixture: Option<PathBuf>,
-        /// Judge base URL override (anthropic provider).
+        /// Judge base URL override.
         #[arg(long)]
         base_url: Option<String>,
-        /// Judge model id (anthropic provider).
+        /// Judge model id.
         #[arg(long, default_value = "claude-opus-4-8")]
         model: String,
         /// Rubric file (defaults to the embedded session rubric).
@@ -179,12 +188,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             base_url,
             verify,
             model,
-        } => doctor(base_url, verify, model),
+            provider,
+        } => doctor(base_url, verify, model, provider),
         Command::Setup {
             judge_base_url,
             judge_api_key,
             no_opencode,
             repo,
+            provider,
             model,
             max_tokens,
             yes,
@@ -195,6 +206,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             judge_api_key,
             no_opencode,
             repo,
+            provider,
             model,
             max_tokens,
             yes,
@@ -221,12 +233,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         ),
         Command::Estimate {
             packet,
+            provider,
             base_url,
             model,
             rubric,
             max_tokens,
             instructions,
-        } => estimate(packet, base_url, model, rubric, max_tokens, instructions),
+        } => estimate(
+            packet,
+            provider,
+            base_url,
+            model,
+            rubric,
+            max_tokens,
+            instructions,
+        ),
         Command::Review {
             packet,
             provider,
@@ -272,14 +293,21 @@ fn review(
                 serde_json::from_str(&fs::read_to_string(fixture)?)?;
             FakeJudgeProvider::new("fake", "fixture-judge", fixture_verdict).judge(&packet)?
         }
-        "anthropic" => {
+        "anthropic" | "openai" | "openai-compatible" => {
             guard_self_grading(&packet, &model)?;
-            anthropic_provider(base_url, model, rubric.as_ref(), max_tokens, instructions)?
-                .judge(&packet)?
+            build_provider(
+                &provider_name,
+                base_url,
+                model,
+                rubric.as_ref(),
+                max_tokens,
+                instructions,
+            )?
+            .judge(&packet)?
         }
         other => {
             return Err(format!(
-                "provider {other:?} is not implemented; use --provider fake or anthropic"
+                "provider {other:?} is not implemented; use --provider fake, anthropic, or openai-compatible"
             )
             .into());
         }
@@ -304,8 +332,10 @@ fn review(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn estimate(
     path: PathBuf,
+    provider_name: String,
     base_url: Option<String>,
     model: String,
     rubric: Option<PathBuf>,
@@ -315,21 +345,29 @@ fn estimate(
     let packet: ReviewPacket = serde_json::from_str(&read_input(path)?)?;
     let packet = packet.redacted();
     guard_self_grading(&packet, &model)?;
-    let estimate = anthropic_provider(base_url, model, rubric.as_ref(), max_tokens, instructions)?
-        .estimate(&packet)?;
+    let estimate = build_provider(
+        &provider_name,
+        base_url,
+        model,
+        rubric.as_ref(),
+        max_tokens,
+        instructions,
+    )?
+    .estimate(&packet)?;
     println!("{}", serde_json::to_string(&estimate)?);
     Ok(())
 }
 
 const EMBEDDED_RUBRIC: &str = include_str!("../../../rubric/rubric_session_v2.md");
 
-fn anthropic_provider(
+fn build_provider(
+    provider_name: &str,
     base_url: Option<String>,
     model: String,
     rubric: Option<&PathBuf>,
     max_tokens: u32,
     instructions: Option<String>,
-) -> Result<sideeye_providers::AnthropicProvider, Box<dyn std::error::Error>> {
+) -> Result<Box<dyn JudgeProvider>, Box<dyn std::error::Error>> {
     let config = load_judge_config();
     let mut route = resolve_judge_route(&config);
     if base_url.is_some() {
@@ -352,11 +390,29 @@ fn anthropic_provider(
         }
         None => (EMBEDDED_RUBRIC.to_owned(), "rubric_session_v2".to_owned()),
     };
-    Ok(
-        sideeye_providers::AnthropicProvider::new(base, key, model, rubric_text, rubric_version)
+    let instructions = instructions.unwrap_or_default();
+    match provider_name {
+        "anthropic" => Ok(Box::new(
+            sideeye_providers::AnthropicProvider::new(
+                base,
+                key,
+                model,
+                rubric_text,
+                rubric_version,
+            )
             .with_max_tokens(max_tokens)
-            .with_instructions(instructions.unwrap_or_default()),
-    )
+            .with_instructions(instructions),
+        )),
+        "openai" | "openai-compatible" => Ok(Box::new(
+            sideeye_providers::OpenAiProvider::new(base, key, model, rubric_text, rubric_version)
+                .with_max_tokens(max_tokens)
+                .with_instructions(instructions),
+        )),
+        other => Err(format!(
+            "provider {other:?} is not implemented; use anthropic or openai-compatible"
+        )
+        .into()),
+    }
 }
 
 /// Refuse a judge that generated any turn in the packet. A model grading its
@@ -466,6 +522,7 @@ fn setup(
     api_key: Option<String>,
     no_opencode: bool,
     repo: Option<PathBuf>,
+    provider: String,
     model: String,
     max_tokens: u32,
     yes: bool,
@@ -473,6 +530,21 @@ fn setup(
     no_verify: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let interactive = !yes && io::stdin().is_terminal();
+    let mut provider = normalize_provider(&provider)?;
+    if interactive {
+        let providers = ["Anthropic-compatible (Claude)", "OpenAI-compatible / local"];
+        let default = usize::from(provider != "anthropic");
+        let choice = Select::new()
+            .with_prompt("Judge provider")
+            .items(&providers)
+            .default(default)
+            .interact()?;
+        provider = if choice == 0 {
+            "anthropic"
+        } else {
+            "openai-compatible"
+        };
+    }
     let path = config_path();
     let mut config: serde_json::Value = if path.exists() {
         serde_json::from_str(&fs::read_to_string(&path)?).unwrap_or_else(|_| serde_json::json!({}))
@@ -491,18 +563,33 @@ fn setup(
     println!("Side-Eye setup");
     println!("The judge is independent of the model that wrote the code.\n");
 
-    let existing_base = judge
-        .get("base_url")
+    let existing_provider = judge
+        .get("provider")
         .and_then(serde_json::Value::as_str)
-        .map(str::to_owned);
+        .and_then(|value| normalize_provider(value).ok())
+        .unwrap_or("anthropic");
+    let provider_changed = existing_provider != provider;
+    let existing_base = (!provider_changed)
+        .then(|| {
+            judge
+                .get("base_url")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .flatten();
     // An explicit Side-Eye route or the saved route wins over ambient
     // ANTHROPIC_BASE_URL. Ambient values often point at the session's local
     // drafting proxy and must not silently replace the judge.
+    let default_base = if provider == "anthropic" {
+        AMBIENT_BASE_DEFAULT
+    } else {
+        "http://127.0.0.1:11434"
+    };
     let mut selected_base = base_url
         .or_else(|| nonempty_env("SIDEEYE_JUDGE_BASE_URL"))
         .or(existing_base)
         .or_else(|| nonempty_env("ANTHROPIC_BASE_URL"))
-        .unwrap_or_else(|| AMBIENT_BASE_DEFAULT.to_owned());
+        .unwrap_or_else(|| default_base.to_owned());
     if interactive {
         selected_base = prompt_input("Judge base URL", &selected_base)?;
     }
@@ -512,10 +599,14 @@ fn setup(
     }
     judge["base_url"] = serde_json::json!(selected_base);
 
-    let existing_key = judge
-        .get("api_key")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned);
+    let existing_key = (!provider_changed)
+        .then(|| {
+            judge
+                .get("api_key")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .flatten();
     let mut key = api_key
         .or_else(|| nonempty_env("SIDEEYE_JUDGE_API_KEY"))
         .or(existing_key.clone());
@@ -528,7 +619,12 @@ fn setup(
     };
     if !keep_existing && (key.is_none() || key.as_deref() == existing_key.as_deref()) {
         if interactive {
-            key = Some(rpassword::prompt_password("Judge API key (hidden): ")?);
+            let prompt = if provider == "anthropic" {
+                "Judge API key (hidden): "
+            } else {
+                "Judge API key (hidden; use 'local' if the server needs none): "
+            };
+            key = Some(rpassword::prompt_password(prompt)?);
         } else if key.is_none() {
             return Err(
                 "no judge credential configured; set SIDEEYE_JUDGE_API_KEY or run sideeye setup in an interactive terminal".into(),
@@ -540,13 +636,24 @@ fn setup(
         return Err("judge API key cannot be empty".into());
     }
     judge["api_key"] = serde_json::json!(key.trim());
+    judge["provider"] = serde_json::json!(provider);
     let key = key.trim().to_owned();
 
     let mut model = model;
     let mut max_tokens = max_tokens;
+    let anthropic_default = "claude-opus-4-8";
     if interactive {
-        model = prompt_input("Judge model", &model)?;
+        if provider != "anthropic" && model == anthropic_default {
+            model = prompt_required("Judge model (required for this provider)")?;
+        } else {
+            model = prompt_input("Judge model", &model)?;
+        }
         max_tokens = prompt_u32("Output token ceiling", max_tokens)?;
+    } else if provider != "anthropic" && model == anthropic_default {
+        return Err(
+            "--model is required when --provider is openai-compatible (for example qwen2.5-coder or gpt-4.1)"
+                .into(),
+        );
     }
 
     let harnesses = detect_harnesses();
@@ -586,6 +693,7 @@ fn setup(
     write_json_secure(&path, &config)?;
 
     println!();
+    println!("Judge provider: {provider}");
     println!("Judge route: {}", selected_base);
     println!("Judge model: {model} (max {max_tokens} output tokens)");
     for (name, detected) in &harnesses {
@@ -608,7 +716,7 @@ fn setup(
     if no_opencode || !opencode {
         println!("OpenCode plugin: skipped");
     } else {
-        match setup_ext::install_opencode_plugin(repo.as_deref(), &model, max_tokens) {
+        match setup_ext::install_opencode_plugin(repo.as_deref(), &model, max_tokens, provider) {
             Ok(path) => println!("OpenCode plugin: configured ({})", path.display()),
             Err(error) => return Err(error.into()),
         }
@@ -616,8 +724,8 @@ fn setup(
 
     let should_verify = verify || (interactive && !no_verify);
     if should_verify {
-        match probe_route(&selected_base, &key, &model) {
-            Ok(tokens) => println!("Free judge check: OK ({tokens} input tokens; no review spend)"),
+        match probe_route(provider, &selected_base, &key, &model) {
+            Ok(detail) => println!("Free judge check: OK ({detail}; no review spend)"),
             Err(error) => {
                 println!("Free judge check: failed: {error}");
                 println!("Config saved. Fix the route and run `sideeye doctor --verify`.");
@@ -652,6 +760,17 @@ fn prompt_input(prompt: &str, default: &str) -> Result<String, Box<dyn std::erro
     })
 }
 
+fn prompt_required(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
+    loop {
+        let value = Input::<String>::new().with_prompt(prompt).interact_text()?;
+        let value = value.trim();
+        if !value.is_empty() {
+            return Ok(value.to_owned());
+        }
+        println!("A value is required.");
+    }
+}
+
 fn prompt_u32(prompt: &str, default: u32) -> Result<u32, Box<dyn std::error::Error>> {
     let value = prompt_input(prompt, &default.to_string())?;
     value
@@ -682,26 +801,57 @@ fn is_git_repository(path: &Path) -> bool {
 }
 
 fn probe_route(
+    provider_name: &str,
     base_url: &str,
     api_key: &str,
     model: &str,
-) -> Result<u64, Box<dyn std::error::Error>> {
-    let provider = sideeye_providers::AnthropicProvider::new(
-        base_url,
-        api_key,
-        model,
-        EMBEDDED_RUBRIC,
-        "rubric_session_v2",
-    );
-    Ok(provider.probe()?)
+) -> Result<String, Box<dyn std::error::Error>> {
+    match provider_name {
+        "anthropic" => {
+            let provider = sideeye_providers::AnthropicProvider::new(
+                base_url,
+                api_key,
+                model,
+                EMBEDDED_RUBRIC,
+                "rubric_session_v2",
+            );
+            Ok(format!("{} input tokens", provider.probe()?))
+        }
+        "openai" | "openai-compatible" => {
+            let provider = sideeye_providers::OpenAiProvider::new(
+                base_url,
+                api_key,
+                model,
+                EMBEDDED_RUBRIC,
+                "rubric_session_v2",
+            );
+            Ok(provider.probe()?)
+        }
+        other => Err(format!("unknown provider {other:?}").into()),
+    }
+}
+
+fn normalize_provider(value: &str) -> Result<&'static str, Box<dyn std::error::Error>> {
+    match value.trim().to_lowercase().as_str() {
+        "anthropic" => Ok("anthropic"),
+        "openai" | "openai-compatible" => Ok("openai-compatible"),
+        other => {
+            Err(format!("unknown provider {other:?}; use anthropic or openai-compatible").into())
+        }
+    }
 }
 
 fn doctor(
     base_url: Option<String>,
     verify: bool,
     model: String,
+    provider: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = load_judge_config();
+    let provider = provider
+        .or(config.provider.clone())
+        .unwrap_or_else(|| "anthropic".to_owned());
+    let provider = normalize_provider(&provider)?;
     let mut route = resolve_judge_route(&config);
     if base_url.is_some() {
         route.base = base_url;
@@ -733,8 +883,8 @@ fn doctor(
             .key
             .as_deref()
             .ok_or("no judge credential configured")?;
-        let tokens = probe_route(base, key, &model)?;
-        println!("  free check:    OK ({tokens} input tokens; no review spend)");
+        let detail = probe_route(provider, base, key, &model)?;
+        println!("  free check:    OK ({detail}; no review spend)");
     }
     println!("  verdict:       ready");
     Ok(())
@@ -742,6 +892,7 @@ fn doctor(
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct JudgeConfig {
+    provider: Option<String>,
     base_url: Option<String>,
     api_key: Option<String>,
     trust_ambient_route: bool,
@@ -779,6 +930,10 @@ fn load_judge_config() -> JudgeConfig {
         return JudgeConfig::default();
     };
     JudgeConfig {
+        provider: judge
+            .get("provider")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         base_url: judge
             .get("base_url")
             .and_then(Value::as_str)
@@ -944,6 +1099,7 @@ mod tests {
     #[test]
     fn config_precedence_matches_python_oracle() {
         let config = JudgeConfig {
+            provider: None,
             base_url: Some("https://config.example".to_owned()),
             api_key: Some("config-key".to_owned()),
             trust_ambient_route: false,

@@ -1,84 +1,68 @@
-# Rust core migration
+# Rust core
 
-The Rust migration is incremental. The existing Python engine remains the
-behavioral oracle while the new core establishes the provider-neutral contracts
-and native installation path.
+The Rust core is the product engine. Python remains only as a temporary
+behavioral oracle for the not-yet-ported Claude Code, Codex, and advise paths.
 
-## First slice
+## Workspace
 
-The workspace currently contains:
-
-- `sideeye-core` — `ReviewPacket`, `Verdict`, evidence/artifact types, and
-  validation and packet redaction.
-- `sideeye-capture` — capture adapters; currently OpenCode V2 export.
+- `sideeye-core` — `ReviewPacket`, `Verdict`, evidence/artifact types,
+  validation, redaction, and budgeting.
+- `sideeye-capture` — capture adapters: OpenCode V2 export with whole-session
+  and last-exchange scopes, plus git diff and manifest evidence.
 - `sideeye-providers` — the provider-neutral `JudgeProvider` trait, a
-  deterministic fake provider, and the Anthropic Messages provider.
-- `sideeye-cli` — experimental `sideeye doctor`, packet validation, and
-  `review` through the fake provider.
+  deterministic fake provider, Anthropic Messages, and OpenAI-compatible Chat
+  Completions (OpenAI, gateways, Ollama, LM Studio, vLLM).
+- `sideeye-cli` — `setup`, `doctor`, packet validation, estimate, and review.
 
-Run it with:
+## Commands
 
 ```bash
-cargo run -p sideeye-cli -- setup --no-opencode --repo .
-cargo run -p sideeye-cli -- doctor
-cargo run -p sideeye-cli -- validate packet.json
-cargo run -p sideeye-cli -- review --provider fake \
-  --fixture verdict.json packet.json
-cargo run -p sideeye-cli -- review packet.json --provider anthropic \
-  --model claude-opus-4-8 --rubric rubric/rubric_session_v2.md
-cargo run -p sideeye-cli -- packet --opencode-export export.json --redact
-cargo run -p sideeye-cli -- packet --opencode-export export.json --redact \
-  --repo /path/to/repo --touched-file src/parser.rs --diff-base HEAD
-cargo run -p sideeye-cli -- estimate packet.json --model claude-opus-4-8
-cargo run -p sideeye-cli -- review packet.json --provider anthropic \
-  --instructions "focus on security vulnerabilities and missing tests"
+sideeye setup
+sideeye setup --provider openai-compatible \
+  --judge-base-url http://127.0.0.1:11434 \
+  --judge-api-key local --model qwen2.5-coder
+sideeye doctor
+sideeye doctor --verify
+sideeye validate packet.json
+sideeye packet --opencode-export export.json --redact \
+  --scope last-exchange
+sideeye estimate packet.json --provider anthropic --model claude-opus-4-8
+sideeye review packet.json --provider anthropic --model claude-opus-4-8
+sideeye review packet.json --provider openai-compatible --model qwen2.5-coder
+sideeye review --provider fake --fixture verdict.json packet.json
 ```
 
-Passing `--repo` and one or more `--touched-file` values adds a `git_diff`
-artifact, so the review is sighted instead of narrative-only. Diffs over the
-character budget are truncated and marked incomplete.
+`estimate` never calls the judge. Anthropic uses the free `count_tokens`
+endpoint and exact pricing. OpenAI-compatible routes use a labeled heuristic
+because there is no standard free count endpoint; their cost is reported as
+unknown unless the gateway provides its own metering. Local routes need a
+placeholder credential (`local`) only because the route guard requires one.
 
-`estimate` calls the free `count_tokens` endpoint and never the judge. Both
-`estimate` and `review` refuse a judge model that also generated turns in the
-packet, preventing self-grading.
+Both `estimate` and `review` refuse a judge model that also generated turns in
+the packet, preventing self-grading. `doctor` is offline by default;
+`doctor --verify` performs a free route check (`count_tokens` or `/v1/models`).
 
-The `doctor` command is intentionally offline. It resolves the same route chain
-as the Python oracle: `--base-url`, `SIDEEYE_JUDGE_*`,
-`$SIDEEYE_CONFIG` (or `~/.config/sideeye/config.json`), then ambient
-`ANTHROPIC_*`. It reports configuration without spending or sending a judge
-request, and blocks ambient private/non-Anthropic routes unless
-`judge.trust_ambient_route` is explicitly enabled. The packet validator accepts
-a JSON file or `-` for stdin.
+## Provider contract
 
-The Rust `Verdict` accepts the Python judge's raw core result during migration.
-Runner-added metadata such as `packet_id`, `rubric_version`, judge identity,
-usage, and cost is optional at the raw boundary but should be populated before
-persisting a comparable record. Issue evidence is optional for compatibility
-with existing Python verdicts and should be supplied by new providers.
+Every provider returns the same validated `Verdict` with packet/rubric/judge
+provenance, usage, issues, severity, and summary. The packet is redacted before
+it leaves the process. OpenAI-compatible transport supports:
 
-## Next slices
+- `tool_calls[0].function.arguments` (primary);
+- legacy `function_call.arguments`;
+- plain JSON content, including fenced JSON, for local models without tools.
 
-1. Add golden fixtures from real Python `SessionTranscript` and judge output;
-   round-trip them through Rust before freezing the contract.
-2. Extend the fake provider contract tests with cost limits, raw-verdict
-   preservation, and rubric/packet provenance.
-3. Spike OpenCode capabilities: active session identity, complete history/tool
-   results, changed-file evidence, and output that reaches the user without
-   model paraphrase. Record the result before choosing plugin APIs.
-4. Build an OpenCode adapter v0 that emits a packet to the existing Python
-   engine. This enables dogfooding before the Rust provider adapter exists.
-   Call `ReviewPacket::redacted()` immediately before any packet leaves the
-   local process; redaction is mandatory, not an adapter-specific option.
-5. Add the Rust Anthropic adapter with parity against the Python engine, then
-   OpenAI-compatible and local providers.
-6. Add Codex and Claude Code native integrations through the same packet API,
-   followed by hermetic conformance CI.
-7. Define the release distribution path (prebuilt binaries and installer) and
-   replace the experimental binary name with the release `sideeye` command only
-   after the conformance matrix is green.
+Routes without tool calling should fail closed with an actionable error. A
+truncated verdict (`finish_reason: length` or `stop_reason: max_tokens`) is
+rejected rather than retried with the same budget.
 
-The judge result must be stored in its original structured form and displayed
-without an intermediate drafting model rewriting it. A future `show` command
-can render the stored record, but it must not replace the raw verdict. Random
-benchmark samples, human escalations, and dogfood reviews remain separate
-streams.
+## Next
+
+1. Port Claude Code and Codex capture plus session review and `advise` to Rust.
+2. Run cross-harness conformance against the Python oracle.
+3. Add the local judge-success ledger and `sideeye stats`.
+4. Delete Python once all gates pass.
+
+The judge result is stored in its original structured form and displayed
+without an intermediate drafting model rewriting it. Random benchmark samples,
+human escalations, and dogfood reviews remain separate streams.

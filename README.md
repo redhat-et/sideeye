@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.5
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.6
 
 ---
 
@@ -56,13 +56,32 @@ Check the judge route without spending:
 
 ```bash
 sideeye doctor          # offline: route guard must say "passed"
-sideeye doctor --verify # free count_tokens check of route, key, and model
+sideeye doctor --verify # free route check (count_tokens or /v1/models)
 ```
 
 ### Judge route
 
 The judge must be a real, stronger route — never the cheap model that drafted
-the session. Resolution order:
+the session. Providers share one packet/verdict contract:
+
+- **Anthropic-compatible** (`--provider anthropic`): exact free `count_tokens`
+  estimate and Claude pricing.
+- **OpenAI-compatible / local** (`--provider openai-compatible`): OpenAI,
+  gateways, Ollama, LM Studio, and vLLM. The estimate is labeled approximate
+  because OpenAI has no free count endpoint; cost is reported as unknown unless
+  the route provides its own metering. Tool calling is required.
+
+Local example:
+
+```bash
+sideeye setup \
+  --provider openai-compatible \
+  --judge-base-url http://127.0.0.1:11434 \
+  --judge-api-key local \
+  --model qwen2.5-coder
+```
+
+Resolution order:
 
 1. `--base-url`
 2. `SIDEEYE_JUDGE_BASE_URL` + `SIDEEYE_JUDGE_API_KEY`
@@ -197,7 +216,7 @@ pytest -q
 (cd integrations/opencode && npm ci && npm run typecheck && npm test)
 ```
 
-Current coverage: **169 Python tests**, **50 Rust tests**, **10 OpenCode plugin
+Current coverage: **169 Python tests**, **58 Rust tests**, **10 OpenCode plugin
 tests**.
 
 ---
