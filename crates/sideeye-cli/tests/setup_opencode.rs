@@ -11,9 +11,11 @@ fn bin() -> PathBuf {
 
 #[cfg(unix)]
 fn fake_npm(directory: &Path) {
-    let path = directory.join("npm");
-    fs::write(&path, "#!/bin/sh\nexit 0\n").expect("write fake npm");
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod npm");
+    for name in ["npm", "opencode"] {
+        let path = directory.join(name);
+        fs::write(&path, "#!/bin/sh\nexit 0\n").expect("write fake binary");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod fake binary");
+    }
 }
 
 #[test]
