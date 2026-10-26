@@ -14,7 +14,7 @@ from sideeye.judge.transcript import make_transcript
 _SELF_REVIEW_MARKERS = (
     "/sideeye",
     "sideeye ·",
-    "sideeye-rs",
+    "sideeye /",
     "session : opencode export",
     "escalating to ",
     "side-eye verdict",

@@ -67,7 +67,7 @@ impl AnthropicProvider {
             rubric_version: rubric_version.into(),
             max_tokens: DEFAULT_MAX_TOKENS,
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
-            user_agent: "sideeye-rs/0.1".to_owned(),
+            user_agent: concat!("sideeye/", env!("CARGO_PKG_VERSION")).to_owned(),
             instructions: None,
         }
     }

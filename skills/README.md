@@ -25,12 +25,12 @@ One router command; the first matching rule wins:
 | You type | What runs | Cost |
 |---|---|---|
 | `/sideeye:ask` or `--help` | prints usage | $0 |
-| `/sideeye:ask --validate` | `sideeye route` — route resolution + guards | $0 |
-| `/sideeye:ask --all [flags]` | `sideeye review --current --yes` — full sighted review (transcript + `git diff`) | median ~$0.75 |
-| `/sideeye:ask [–turn N] <text> [flags]` | `sideeye advise --current --yes --question "<text>"` — scoped opinion on recent work | ~$0.02–$1 |
+| `/sideeye:ask --validate` | `sideeye-py route` — route resolution + guards | $0 |
+| `/sideeye:ask --all [flags]` | `sideeye-py review --current --yes` — full sighted review (transcript + `git diff`) | median ~$0.75 |
+| `/sideeye:ask [–turn N] <text> [flags]` | `sideeye-py advise --current --yes --question "<text>"` — scoped opinion on recent work | ~$0.02–$1 |
 
 Pass-through flags: `--model fable|opus|sonnet|haiku`, `--no-code`, `--max-cost N`.
-The authoritative lists are `sideeye review --help` / `sideeye advise --help`.
+The authoritative lists are `sideeye-py review --help` / `sideeye-py advise --help`.
 
 The skill is **user-invoked only** (`disable-model-invocation: true`) because it
 spends real money, and it **presents the tool output verbatim and never lets the

@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.4.1
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.5.0
 
 ---
 
@@ -29,7 +29,7 @@ uv tool install git+https://github.com/redhat-et/sideeye
 Then run the one-time setup:
 
 ```bash
-sideeye setup
+sideeye-py setup        # legacy Python setup until the Rust port lands
 ```
 
 Setup:
@@ -39,12 +39,16 @@ Setup:
 - detects Claude Code, Codex, and OpenCode;
 - installs and configures the bundled OpenCode plugin;
 - preserves unrelated JSON/JSONC settings;
-- selects the Rust engine when `sideeye-rs` is on `PATH`.
+- selects the Rust engine when `sideeye` is on `PATH`.
+
+> **Migration note:** the Rust engine ships as `sideeye`. The Python CLI is
+> `sideeye-py` and remains the setup/session/advise fallback until those ports
+> land. See [`docs/rust-migration-plan.md`](docs/rust-migration-plan.md).
 
 Check the judge route without spending:
 
 ```bash
-sideeye route          # must say: verdict: OK
+sideeye-py route       # must say: verdict: OK
 ```
 
 ### Judge route
@@ -102,7 +106,7 @@ paraphrase it.
 Codex sessions are supported through the CLI adapter:
 
 ```bash
-sideeye review --client codex
+sideeye-py review --client codex
 ```
 
 A native Codex skill/plugin is tracked work; manual rollout paths are not the
@@ -111,10 +115,10 @@ target UX.
 ### CLI
 
 ```bash
-sideeye review                 # full session + diff + evidence
-sideeye advise                 # recent scoped second opinion
-sideeye route                  # resolved judge route, no spend
-sideeye setup                  # configure credentials and harnesses
+sideeye-py review              # full session + diff + evidence (legacy)
+sideeye-py advise              # recent scoped second opinion (legacy)
+sideeye-py route               # resolved judge route, no spend
+sideeye-py setup               # configure credentials and harnesses
 ```
 
 ---
@@ -131,12 +135,12 @@ The Rust workspace is the migration target:
 | `sideeye-cli` | `doctor`, `validate`, `packet`, `estimate`, `review` |
 
 ```bash
-sideeye-rs doctor
-sideeye-rs validate packet.json
-sideeye-rs packet --opencode-export export.json --redact \
+sideeye doctor
+sideeye validate packet.json
+sideeye packet --opencode-export export.json --redact \
   --repo . --touched-file src/parser.rs
-sideeye-rs estimate packet.json --model claude-opus-4-8
-sideeye-rs review packet.json --provider anthropic --model claude-opus-4-8
+sideeye estimate packet.json --model claude-opus-4-8
+sideeye review packet.json --provider anthropic --model claude-opus-4-8
 ```
 
 Python remains the fallback and the behavioral oracle until cross-harness

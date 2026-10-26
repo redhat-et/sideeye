@@ -14,7 +14,8 @@ const AMBIENT_BASE_DEFAULT: &str = "https://api.anthropic.com";
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "sideeye-rs",
+    name = "sideeye",
+    version,
     about = "Provider-neutral Side-Eye core (experimental)"
 )]
 struct Cli {
@@ -108,7 +109,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("sideeye-rs: {error}");
+            eprintln!("sideeye: {error}");
             ExitCode::FAILURE
         }
     }
@@ -312,7 +313,7 @@ fn doctor(base_url: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
         route.source = Some("flag");
     }
 
-    println!("sideeye-rs doctor");
+    println!("sideeye doctor");
     println!(
         "  judge base URL: {}",
         route.base.as_deref().unwrap_or("not configured")

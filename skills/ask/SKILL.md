@@ -2,7 +2,7 @@
 name: Ask
 description: Ask the expensive Side-Eye judge about THIS session. --all = full sighted review, --turn N = recent exchanges, free text = scoped opinion, --validate = free setup check. User-invoked; spends real money except --validate and --help.
 disable-model-invocation: true
-allowed-tools: Bash(sideeye review *), Bash(sideeye advise *), Bash(sideeye route), Bash("$HOME/.local/bin/sideeye" review *), Bash("$HOME/.local/bin/sideeye" advise *), Bash("$HOME/.local/bin/sideeye" route), Bash(command -v sideeye*), Bash(uv tool install *), Bash(pipx install *), Bash(python3 -m pip install *)
+allowed-tools: Bash(sideeye-py review *), Bash(sideeye-py advise *), Bash(sideeye-py route), Bash("$HOME/.local/bin/sideeye-py" review *), Bash("$HOME/.local/bin/sideeye-py" advise *), Bash("$HOME/.local/bin/sideeye-py" route), Bash(command -v sideeye*), Bash(uv tool install *), Bash(pipx install *), Bash(python3 -m pip install *)
 ---
 
 # /sideeye:ask — ask the expensive model
@@ -16,13 +16,13 @@ they want checked; the judge's answer comes back verbatim.
 | User typed | Mode | Command to run |
 |---|---|---|
 | nothing, or `--help` / `help` | usage | print the Usage section below and stop (no spend) |
-| `--validate` (with or without other text) | setup check | `sideeye route` (free) |
-| `--all` | full review | `sideeye review --current --yes` |
-| anything else (free text, `--turn N`) | scoped opinion | `sideeye advise --current --yes --question "<their text>"` |
+| `--validate` (with or without other text) | setup check | `sideeye-py route` (free) |
+| `--all` | full review | `sideeye-py review --current --yes` |
+| anything else (free text, `--turn N`) | scoped opinion | `sideeye-py advise --current --yes --question "<their text>"` |
 
 Routing rules:
 - **`--validate` wins over everything** — it is the free diagnostic; run
-  `sideeye route` alone, print its stdout verbatim, stop.
+  `sideeye-py route` alone, print its stdout verbatim, stop.
 - **`--all` wins over free text** — if both appear, run the review and mention
   in one line that the text was ignored.
 - `--turn N` or `--turns N` → add `--turns N` to the advise command (default 1).
@@ -75,7 +75,7 @@ Then:
 3. **NEVER write the verdict yourself.** This is the whole point of the tool: a
    verdict invented here would be produced by the *cheap* model this session
    runs on — the exact plausible-but-fake output Side-Eye exists to catch. Only
-   the real stdout of `sideeye review` / `sideeye advise` / `sideeye route` is a
+   the real stdout of `sideeye-py review` / `sideeye-py advise` / `sideeye-py route` is a
    verdict. If the command fails, returns nothing, or is blocked, say so plainly
    and stop — do not fabricate scores, issues, or a summary under any
    circumstances.
@@ -105,5 +105,5 @@ Then:
   exactly what resolves and why.
 - If the estimate exceeds the cost ceiling, the command aborts with a message
   telling the user how to raise `--max-cost`. Show it; don't bypass it.
-- The authoritative flag lists are always `sideeye review --help` and
-  `sideeye advise --help`.
+- The authoritative flag lists are always `sideeye-py review --help` and
+  `sideeye-py advise --help`.

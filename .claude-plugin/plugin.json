@@ -1,7 +1,7 @@
 {
   "name": "sideeye",
   "description": "On-demand session review by a strong Claude judge \u2014 draft cheap, review expensive. /sideeye:ask sends the current session (or a recent exchange) to the judge: --all for a full sighted review, free text for a scoped opinion, --validate for a $0 setup check.",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "author": {
     "name": "Yossi Ovadia"
   },

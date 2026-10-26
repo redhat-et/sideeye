@@ -51,10 +51,10 @@ export async function reviewExport(
       return reviewWithRust(repo, diffBase, touchedFiles, data, options, confirm, instructions)
     }
     if (instructions) {
-      return "Focus instructions require the Rust engine (`engine: rust`). Re-run `sideeye setup` with `sideeye-rs` on PATH."
+      return "Focus instructions require the Rust engine (`engine: rust`). Re-run setup with `sideeye` on PATH."
     }
     const wrapper = { repo, diff_base: diffBase, touched_files: touchedFiles, data }
-    const command = Array.isArray(options.command) ? options.command : [options.command ?? "sideeye"]
+    const command = Array.isArray(options.command) ? options.command : [options.command ?? "sideeye-py"]
     const estimate = await run(command[0], [
       ...command.slice(1), "review", "--opencode-export", "-", "--estimate-only", "--json",
       "--repo", repo, "--diff-base", diffBase,
@@ -90,7 +90,7 @@ async function reviewWithRust(
   confirm: boolean,
   instructions: string,
 ): Promise<string> {
-  const rust = Array.isArray(options.rust) ? options.rust : [options.rust ?? "sideeye-rs"]
+  const rust = Array.isArray(options.rust) ? options.rust : [options.rust ?? "sideeye"]
   const model = typeof options.model === "string" ? options.model : "claude-opus-4-8"
   const maxTokens = Number.isInteger(options.maxTokens) ? String(options.maxTokens) : "2048"
   const args = [...rust.slice(1)]

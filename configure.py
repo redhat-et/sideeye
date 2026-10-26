@@ -30,6 +30,23 @@ def _which(name: str) -> str | None:
     return shutil.which(name)
 
 
+def _rust_sideeye() -> str | None:
+    """Return the Rust `sideeye` binary, not the legacy Python CLI."""
+    for name in ("sideeye", "sideeye-rs"):
+        path = _which(name)
+        if not path:
+            continue
+        try:
+            result = subprocess.run(
+                [path, "--version"], capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0 and result.stdout.strip().lower().startswith("sideeye"):
+            return path
+    return None
+
+
 def _normalize_judge_base_url(value: str) -> str:
     value = value.rstrip("/")
     return value[:-3] if value.endswith("/v1") else value
@@ -369,8 +386,8 @@ def _install_opencode_plugin() -> tuple[str, pathlib.Path | None]:
             )
 
     config_path_value = _opencode_config_file()
-    command_options = {"command": [_which("sideeye") or "sideeye"]}
-    rust = _which("sideeye-rs")
+    command_options = {"command": [_which("sideeye-py") or "sideeye-py"]}
+    rust = _rust_sideeye()
     if rust:
         # Prefer the native engine when it is installed. Python remains the
         # fallback for users who only have the Python package.

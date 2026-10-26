@@ -39,16 +39,18 @@ After the gates below:
 
 ## Phases and gates
 
-### Phase 0 — naming and UX
+### Phase 0 — naming and UX (done in 0.5.0)
 
-- Rename the Rust binary `sideeye-rs` → `sideeye`.
-- Rename the Python entrypoint `sideeye` → `sideeye-py`.
-- Add `sideeye --version`.
-- Update setup, plugin defaults, release artifacts, docs, and the demo.
-- Fix the misleading “focus” wording: `/sideeye <free text>` is the syntax.
+- Renamed the Rust binary `sideeye-rs` → `sideeye`.
+- Renamed the Python entrypoint `sideeye` → `sideeye-py`.
+- Added `sideeye --version`.
+- Updated plugin defaults, release artifacts, docs, and the demo.
+- Fixed the misleading “focus” wording: `/sideeye <free text>` is the syntax.
 
 Gate: `sideeye --version` resolves to Rust; `sideeye-py` remains the explicit
 legacy command; OpenCode setup selects the right one.
+
+Transitional note: setup is still `sideeye-py setup` until Phase 1 lands.
 
 ### Phase 1 — Rust setup
 
