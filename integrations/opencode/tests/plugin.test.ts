@@ -163,6 +163,7 @@ test("rust engine builds a packet, estimates, then reviews on confirm", async ()
   const estimate = await testHelpers.reviewExport(session, data, options)
   assert.match(estimate, /estimate \(no judge call made\)/i)
   assert.match(estimate, /rust \(max 2048 output tokens\)/)
+  assert.match(estimate, /judge: claude-opus-4-8/)
   assert.match(estimate, /scope: 2 turns · git diff \(1 artifact\(s\), complete\)/)
 
   const verdict = await testHelpers.reviewExport(session, data, options, "focus on security --confirm")

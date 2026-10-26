@@ -50,7 +50,11 @@ const OPENCODE_FILES: &[(&str, &str)] = &[
     ),
 ];
 
-pub(crate) fn install_opencode_plugin(repo: Option<&Path>) -> Result<PathBuf, String> {
+pub(crate) fn install_opencode_plugin(
+    repo: Option<&Path>,
+    model: &str,
+    max_tokens: u32,
+) -> Result<PathBuf, String> {
     let destination = data_root().join("opencode-plugin");
     fs::create_dir_all(&destination)
         .map_err(|error| format!("cannot create plugin dir: {error}"))?;
@@ -82,7 +86,11 @@ pub(crate) fn install_opencode_plugin(repo: Option<&Path>) -> Result<PathBuf, St
 
     let python = which("sideeye-py").unwrap_or_else(|| PathBuf::from("sideeye-py"));
     let rust = which("sideeye").filter(|path| is_rust_sideeye(path));
-    let mut options = json!({"command": [python]});
+    let mut options = json!({
+        "command": [python],
+        "model": model,
+        "maxTokens": max_tokens,
+    });
     if let Some(rust) = rust {
         options["engine"] = json!("rust");
         options["rust"] = json!([rust]);
