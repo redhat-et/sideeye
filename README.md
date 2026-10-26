@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.5.0
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.0
 
 ---
 
@@ -29,7 +29,7 @@ uv tool install git+https://github.com/redhat-et/sideeye
 Then run the one-time setup:
 
 ```bash
-sideeye-py setup        # legacy Python setup until the Rust port lands
+sideeye setup
 ```
 
 Setup:
@@ -41,14 +41,14 @@ Setup:
 - preserves unrelated JSON/JSONC settings;
 - selects the Rust engine when `sideeye` is on `PATH`.
 
-> **Migration note:** the Rust engine ships as `sideeye`. The Python CLI is
-> `sideeye-py` and remains the setup/session/advise fallback until those ports
+> **Migration note:** setup and the Rust engine ship as `sideeye`. The Python
+> CLI is `sideeye-py` and remains the session/advise fallback until those ports
 > land. See [`docs/rust-migration-plan.md`](docs/rust-migration-plan.md).
 
 Check the judge route without spending:
 
 ```bash
-sideeye-py route       # must say: verdict: OK
+sideeye doctor         # must say: route guard: passed
 ```
 
 ### Judge route
@@ -115,10 +115,10 @@ target UX.
 ### CLI
 
 ```bash
-sideeye-py review              # full session + diff + evidence (legacy)
-sideeye-py advise              # recent scoped second opinion (legacy)
-sideeye-py route               # resolved judge route, no spend
-sideeye-py setup               # configure credentials and harnesses
+sideeye setup                  # configure credentials and harnesses (Rust)
+sideeye doctor                 # resolved route guard, no spend
+sideeye-py review              # legacy full-session review
+sideeye-py advise              # legacy recent scoped opinion
 ```
 
 ---

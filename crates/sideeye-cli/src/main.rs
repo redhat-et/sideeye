@@ -8,6 +8,8 @@ use std::{
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
+mod setup_ext;
+
 use clap::{Parser, Subcommand};
 use serde_json::Value;
 use sideeye_core::ReviewPacket;
@@ -433,18 +435,25 @@ fn setup(
     write_json_secure(&path, &config)?;
 
     println!("judge route: configured ({})", path.display());
-    for (name, detected) in detect_harnesses() {
+    let harnesses = detect_harnesses();
+    for (name, detected) in harnesses {
         println!(
             "{name}: {}",
             if detected { "detected" } else { "not detected" }
         );
     }
-    if no_opencode {
+    let opencode = harnesses
+        .iter()
+        .find(|(name, _)| *name == "OpenCode")
+        .map(|(_, detected)| *detected)
+        .unwrap_or(false);
+    if no_opencode || !opencode {
         println!("OpenCode plugin: skipped");
     } else {
-        println!(
-            "OpenCode plugin: Rust setup port pending; run `sideeye-py setup` to install it for now"
-        );
+        match setup_ext::install_opencode_plugin() {
+            Ok(path) => println!("OpenCode plugin: configured ({})", path.display()),
+            Err(error) => return Err(error.into()),
+        }
     }
     println!("Run `sideeye doctor` to verify the route without spending.");
     Ok(())
