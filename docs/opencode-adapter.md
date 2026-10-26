@@ -104,11 +104,11 @@ and `options.rust` points at `sideeye-rs`, it builds the packet, estimates, and
 judges natively. `sideeye setup` selects Rust when `sideeye-rs` is on PATH.
 
 The first invocation is estimate-only: it performs the free route/token/cost
-check and inserts the estimate without judging. Text after `/sideeye` is passed
-to the judge as focus instructions, for example
-`/sideeye focus on security vulnerabilities`; the same text is required with
-`--confirm`. Instructions steer the review but do not widen the captured scope
-beyond the session and its diff. The user explicitly invokes
+check and inserts the estimate without judging. Anything after `/sideeye` is
+free text passed to the judge, for example
+`/sideeye security vulnerabilities and missing tests`; only `--confirm` is
+special. The same text is required with `--confirm`. Free text steers the
+review but does not widen the captured scope beyond the session and its diff. The user explicitly invokes
 `/sideeye --confirm` before the plugin passes `--yes` to the review bridge.
 The structured verdict is inserted verbatim as a synthetic message; it may be
 visible to subsequent model context, but it is never routed through the model

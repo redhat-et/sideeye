@@ -178,14 +178,14 @@ button:focus-visible { outline: 2px solid #1f6feb; outline-offset: 2px; }
   // Line kinds: user, wait, blank, slow, out/dim/hdr/cost.
   var SCENES = {
     A: [
-      { k: 'user', t: '/sideeye focus on security vulnerabilities and missing tests' },
+      { k: 'user', t: '/sideeye security vulnerabilities and missing tests' },
       { k: 'blank' },
       { k: 'dim', t: 'sideeye · review estimate (no judge call made)' },
       { k: 'mix', html: '<span class="dim">  session: </span><span class="ok">ses_f2bf…3DAX</span><span class="dim">  source: opencode</span>' },
       { k: 'dim', t: '  repo:    /Users/you/code/sideeye' },
       { k: 'dim', t: '  scope:   799 turns + git diff vs origin/main (partial, 119.9k chars)' },
       { k: 'dim', t: '  engine:  rust (sideeye-rs v0.4.1)' },
-      { k: 'dim', t: '  focus:   security vulnerabilities and missing tests' },
+      { k: 'dim', t: '  request: security vulnerabilities and missing tests' },
       { k: 'dim', t: '  judge:   claude-opus-5-5' },
       { k: 'wait', pre: '  ', live: ' counting tokens (free)…', final: '  ⠋ counting tokens (free)…            → 176,575 input tokens', dur: 1600 },
       { k: 'blank' },
@@ -194,17 +194,17 @@ button:focus-visible { outline: 2px solid #1f6feb; outline-offset: 2px; }
       { k: 'mix', html: '<span class="dim">  context:        </span><span class="ok">176,575 + 2,048 ≤ 200,000</span><span class="dim">  window OK</span>' },
       { k: 'mix', html: '<span class="dim">  self-grading:   </span><span class="ok">judge did not generate this session</span>' },
       { k: 'blank' },
-      { k: 'dim', t: 'Run /sideeye --confirm focus on security vulnerabilities and missing tests' },
+      { k: 'dim', t: 'Run /sideeye --confirm security vulnerabilities and missing tests' },
       { k: 'dim', t: 'to submit this packet to the judge.' },
       { k: 'blank' },
       { k: 'dim', t: '· no model call was made — this step is free ·' }
     ],
     B: [
-      { k: 'user', t: '/sideeye --confirm focus on security vulnerabilities and missing tests' },
+      { k: 'user', t: '/sideeye --confirm security vulnerabilities and missing tests' },
       { k: 'blank' },
       { k: 'dim', t: 'sideeye · review' },
       { k: 'mix', html: '<span class="dim">  source: </span><span class="ok">opencode</span><span class="dim">  engine: </span><span class="ok">rust</span><span class="dim">  judge: claude-opus-5-5</span>' },
-      { k: 'mix', html: '<span class="dim">  packet: </span><span class="ok">ReviewPacket</span><span class="dim">  diff base: origin/main merge-base  focus: security</span>' },
+      { k: 'mix', html: '<span class="dim">  packet: </span><span class="ok">ReviewPacket</span><span class="dim">  diff base: origin/main merge-base  request: security</span>' },
       { k: 'mix', html: '<span class="dim">    </span><span class="ok">✓</span><span class="dim"> hidden reasoning excluded</span>' },
       { k: 'mix', html: '<span class="dim">    </span><span class="ok">✓</span><span class="dim"> credentials redacted</span>' },
       { k: 'mix', html: '<span class="dim">    </span><span class="ok">✓</span><span class="dim"> transcript + diff budgeted to fit</span>' },

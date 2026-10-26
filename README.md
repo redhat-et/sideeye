@@ -70,12 +70,15 @@ Ambient Anthropic credentials are not sent to a foreign base unless you set
 The plugin adds a native TUI command and a server command:
 
 ```text
-/sideeye                         # free estimate
-/sideeye --confirm               # submit to the judge
-/sideeye focus on security       # focus instructions
-/sideeye --confirm focus on security
-/sideeye-review                  # server command
+/sideeye                                     # free estimate
+/sideeye --confirm                           # submit to the judge
+/sideeye security vulnerabilities and tests  # free-text focus
+/sideeye --confirm security vulnerabilities and tests
+/sideeye-review                              # server command
 ```
+
+Anything after `/sideeye` is free text that tells the judge what to focus on.
+Only `--confirm` is special.
 
 Flow:
 
