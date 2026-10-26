@@ -14,3 +14,7 @@ serde_json = "1"
 sideeye-core = { path = "../sideeye-core" }
 sideeye-capture = { path = "../sideeye-capture" }
 sideeye-providers = { path = "../sideeye-providers" }
+rpassword = "7"
+
+[dev-dependencies]
+tempfile = "3"
