@@ -10,12 +10,10 @@ fn bin() -> PathBuf {
 }
 
 #[cfg(unix)]
-fn fake_npm(directory: &Path) {
-    for name in ["npm", "opencode"] {
-        let path = directory.join(name);
-        fs::write(&path, "#!/bin/sh\nexit 0\n").expect("write fake binary");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod fake binary");
-    }
+fn fake_bin(directory: &Path, name: &str, code: i32) {
+    let path = directory.join(name);
+    fs::write(&path, format!("#!/bin/sh\nexit {code}\n")).expect("write fake binary");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod fake binary");
 }
 
 #[test]
@@ -31,14 +29,14 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
     .expect("seed opencode");
     let fakebin = dir.path().join("bin");
     fs::create_dir_all(&fakebin).expect("fakebin");
-    fake_npm(&fakebin);
+    fake_bin(&fakebin, "npm", 0);
+    fake_bin(&fakebin, "opencode", 0);
 
     let binary_dir = bin().parent().unwrap().to_path_buf();
     let path = std::env::join_paths([binary_dir, fakebin.clone()])
         .expect("join paths")
         .to_string_lossy()
         .into_owned();
-    let path = format!("{path}:{}", std::env::var("PATH").unwrap_or_default());
     let data = dir.path().join("data");
 
     let output = Command::new(bin())
@@ -81,6 +79,7 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
     );
     assert_eq!(plugin["options"]["engine"], "rust");
     assert_eq!(plugin["options"]["repo"], env!("CARGO_MANIFEST_DIR"));
+    assert_eq!(plugin["options"]["command"][0], "sideeye-py");
     assert!(data.join("opencode-plugin/src/index.ts").is_file());
     assert!(data.join("opencode-plugin/package.json").is_file());
 
@@ -98,4 +97,38 @@ fn version_is_available() {
         .expect("run version");
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("sideeye "));
+}
+
+#[test]
+#[cfg(unix)]
+fn setup_leaves_config_untouched_when_the_plugin_build_fails() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = dir.path().join("sideeye.json");
+    let opencode = dir.path().join("opencode.jsonc");
+    let original = "{\n  // keep this\n  \"model\": \"provider/model\"\n}\n";
+    fs::write(&opencode, original).expect("seed opencode");
+    let fakebin = dir.path().join("bin");
+    fs::create_dir_all(&fakebin).expect("fakebin");
+    fake_bin(&fakebin, "npm", 1);
+    fake_bin(&fakebin, "opencode", 0);
+
+    let binary_dir = bin().parent().unwrap().to_path_buf();
+    let path = std::env::join_paths([binary_dir, fakebin])
+        .expect("join paths")
+        .to_string_lossy()
+        .into_owned();
+
+    let output = Command::new(bin())
+        .env("SIDEEYE_CONFIG", &config)
+        .env("SIDEEYE_JUDGE_API_KEY", "test-key")
+        .env("SIDEEYE_DATA_DIR", dir.path().join("data"))
+        .env("OPENCODE_CONFIG", &opencode)
+        .env("PATH", &path)
+        .env_remove("SIDEEYE_JUDGE_BASE_URL")
+        .args(["setup", "--repo", env!("CARGO_MANIFEST_DIR")])
+        .output()
+        .expect("run setup");
+
+    assert!(!output.status.success());
+    assert_eq!(fs::read_to_string(&opencode).expect("opencode"), original);
 }
