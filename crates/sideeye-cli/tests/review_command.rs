@@ -9,7 +9,7 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn fake_provider_executes_packet_and_emits_provenance() {
-    let output = Command::new(env!("CARGO_BIN_EXE_sideeye-rs"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sideeye"))
         .args([
             "review",
             "--provider",
@@ -19,7 +19,7 @@ fn fake_provider_executes_packet_and_emits_provenance() {
             fixture("review-packet.json").to_str().unwrap(),
         ])
         .output()
-        .expect("run sideeye-rs");
+        .expect("run sideeye");
 
     assert!(
         output.status.success(),
@@ -36,7 +36,7 @@ fn fake_provider_executes_packet_and_emits_provenance() {
 
 #[test]
 fn missing_fixture_fails_before_provider_call() {
-    let output = Command::new(env!("CARGO_BIN_EXE_sideeye-rs"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sideeye"))
         .args([
             "review",
             "--provider",
@@ -44,7 +44,7 @@ fn missing_fixture_fails_before_provider_call() {
             fixture("review-packet.json").to_str().unwrap(),
         ])
         .output()
-        .expect("run sideeye-rs");
+        .expect("run sideeye");
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("--fixture is required"));
@@ -52,7 +52,7 @@ fn missing_fixture_fails_before_provider_call() {
 
 #[test]
 fn unsupported_provider_fails_closed() {
-    let output = Command::new(env!("CARGO_BIN_EXE_sideeye-rs"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sideeye"))
         .args([
             "review",
             "--provider",
@@ -60,7 +60,7 @@ fn unsupported_provider_fails_closed() {
             fixture("review-packet.json").to_str().unwrap(),
         ])
         .output()
-        .expect("run sideeye-rs");
+        .expect("run sideeye");
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("not implemented"));

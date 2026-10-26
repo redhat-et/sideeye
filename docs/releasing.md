@@ -2,8 +2,8 @@
 
 Releases produce four artifacts:
 
-- `sideeye-rs-<arch>.tar.gz` — Rust CLI for Linux x86_64 and macOS arm64
-- `sideeye-rs-<arch>.tar.gz.sha256` — checksums
+- `sideeye-<arch>.tar.gz` — Rust CLI for Linux x86_64 and macOS arm64
+- `sideeye-<arch>.tar.gz.sha256` — checksums
 - `sideeye-*.whl` and `sideeye-*.tar.gz` — Python package
 - `redhat-et-sideeye-opencode-*.tgz` — built OpenCode plugin
 

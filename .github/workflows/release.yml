@@ -45,15 +45,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp "target/${{ matrix.target }}/release/sideeye-rs" dist/sideeye-rs
-          tar -czf "sideeye-rs-${{ matrix.arch }}.tar.gz" -C dist sideeye-rs
-          shasum -a 256 "sideeye-rs-${{ matrix.arch }}.tar.gz" > "sideeye-rs-${{ matrix.arch }}.tar.gz.sha256"
+          cp "target/${{ matrix.target }}/release/sideeye" dist/sideeye
+          tar -czf "sideeye-${{ matrix.arch }}.tar.gz" -C dist sideeye
+          shasum -a 256 "sideeye-${{ matrix.arch }}.tar.gz" > "sideeye-${{ matrix.arch }}.tar.gz.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: sideeye-rs-${{ matrix.arch }}
+          name: sideeye-${{ matrix.arch }}
           path: |
-            sideeye-rs-${{ matrix.arch }}.tar.gz
-            sideeye-rs-${{ matrix.arch }}.tar.gz.sha256
+            sideeye-${{ matrix.arch }}.tar.gz
+            sideeye-${{ matrix.arch }}.tar.gz.sha256
 
   python:
     name: Python package

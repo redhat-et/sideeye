@@ -3,8 +3,8 @@
 This V2 plugin registers the native `sideeye-review` command and the TUI
 `/sideeye` slash command. It uses the Python bridge by default, or the Rust
 engine when `options.engine` is `"rust"` and `options.rust` points at the
-`sideeye-rs` command. `sideeye setup` selects Rust automatically when
-`sideeye-rs` is on PATH. The command receives the active OpenCode session ID,
+`sideeye` command. `sideeye-py setup` selects Rust automatically when
+`sideeye` is on PATH. The command receives the active OpenCode session ID,
 reads the supported projected session context,
 resolves the nested Git repository from the session/tool paths, collects the
 branch/worktree code artifact, and invokes the existing Python review bridge

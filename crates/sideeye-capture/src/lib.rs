@@ -29,7 +29,8 @@ pub enum CaptureError {
 const SELF_REVIEW_MARKERS: &[&str] = &[
     "/sideeye",
     "sideeye ·",
-    "sideeye-rs",
+    "sideeye /",
+    "sideeye doctor",
     "session : opencode export",
     "escalating to ",
     "side-eye verdict",

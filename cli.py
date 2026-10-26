@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """`sideeye` CLI dispatcher — the single console entry point.
 
-    sideeye review [opts]   full-session review (sighted: transcript + code diff)
-    sideeye advise [opts]   quick second opinion on the last exchange
+    sideeye-py review [opts]   full-session review (sighted: transcript + code diff)
+    sideeye-py advise [opts]   quick second opinion on the last exchange
 
 Both subcommands are thin: they delegate to the existing engine modules
 (sideeye.escalate / sideeye.advise). This exists only so users get a real
@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import sys
 
-USAGE = """sideeye — on-demand session review (draft cheap, review expensive)
+USAGE = """sideeye-py — on-demand session review (legacy Python engine) (draft cheap, review expensive)
 
-  sideeye review [opts]   full-session review (sighted: transcript + code diff)
-  sideeye advise [opts]   quick second opinion on the last exchange
-  sideeye setup            configure judge credentials and detected harnesses
-  sideeye route           show the resolved judge route + guards (spends $0)
+  sideeye-py review [opts]   full-session review (sighted: transcript + code diff)
+  sideeye-py advise [opts]   quick second opinion on the last exchange
+  sideeye-py setup            configure judge credentials and detected harnesses
+  sideeye-py route           show the resolved judge route + guards (spends $0)
 
-Run `sideeye review -h` or `sideeye advise -h` for options.
+Run `sideeye-py review -h` or `sideeye-py advise -h` for options.
 """
 
 

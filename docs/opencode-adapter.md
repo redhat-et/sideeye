@@ -100,8 +100,8 @@ not claim this dependency tree is release-ready. A release policy decision or
 upstream remediation is required before publishing the installer.
 
 The plugin runs the Python bridge by default. When `options.engine` is `"rust"`
-and `options.rust` points at `sideeye-rs`, it builds the packet, estimates, and
-judges natively. `sideeye setup` selects Rust when `sideeye-rs` is on PATH.
+and `options.rust` points at `sideeye`, it builds the packet, estimates, and
+judges natively. `sideeye setup` selects Rust when `sideeye` is on PATH.
 
 The first invocation is estimate-only: it performs the free route/token/cost
 check and inserts the estimate without judging. Anything after `/sideeye` is

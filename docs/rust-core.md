@@ -13,7 +13,7 @@ The workspace currently contains:
 - `sideeye-capture` — capture adapters; currently OpenCode V2 export.
 - `sideeye-providers` — the provider-neutral `JudgeProvider` trait, a
   deterministic fake provider, and the Anthropic Messages provider.
-- `sideeye-cli` — experimental `sideeye-rs doctor`, packet validation, and
+- `sideeye-cli` — experimental `sideeye doctor`, packet validation, and
   `review` through the fake provider.
 
 Run it with:
