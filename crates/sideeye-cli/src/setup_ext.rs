@@ -50,7 +50,7 @@ const OPENCODE_FILES: &[(&str, &str)] = &[
     ),
 ];
 
-pub(crate) fn install_opencode_plugin() -> Result<PathBuf, String> {
+pub(crate) fn install_opencode_plugin(repo: Option<&Path>) -> Result<PathBuf, String> {
     let destination = data_root().join("opencode-plugin");
     fs::create_dir_all(&destination)
         .map_err(|error| format!("cannot create plugin dir: {error}"))?;
@@ -87,7 +87,7 @@ pub(crate) fn install_opencode_plugin() -> Result<PathBuf, String> {
         options["engine"] = json!("rust");
         options["rust"] = json!([rust]);
     }
-    if let Some(repo) = git_root() {
+    if let Some(repo) = repo.map(Path::to_path_buf).or_else(git_root) {
         options["repo"] = json!(repo);
     }
     let entry = json!({"package": destination, "options": options});

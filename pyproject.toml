@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 name = "sideeye"
 # Keep in lockstep with .claude-plugin/plugin.json + marketplace.json; the
 # release flow bumps all three.
-version = "0.6.0"
+version = "0.6.1"
 description = "Side-Eye — on-demand session review (draft cheap, review expensive)"
 requires-python = ">=3.10"
 dependencies = ["requests"]

@@ -48,7 +48,13 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
         .env("OPENCODE_CONFIG", &opencode)
         .env("PATH", &path)
         .env_remove("SIDEEYE_JUDGE_BASE_URL")
-        .args(["setup", "--judge-base-url", "https://judge.example/v1"])
+        .args([
+            "setup",
+            "--judge-base-url",
+            "https://judge.example/v1",
+            "--repo",
+            env!("CARGO_MANIFEST_DIR"),
+        ])
         .output()
         .expect("run setup");
 
@@ -74,6 +80,7 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
         data.join("opencode-plugin").to_string_lossy().as_ref()
     );
     assert_eq!(plugin["options"]["engine"], "rust");
+    assert_eq!(plugin["options"]["repo"], env!("CARGO_MANIFEST_DIR"));
     assert!(data.join("opencode-plugin/src/index.ts").is_file());
     assert!(data.join("opencode-plugin/package.json").is_file());
 

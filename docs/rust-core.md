@@ -19,7 +19,7 @@ The workspace currently contains:
 Run it with:
 
 ```bash
-cargo run -p sideeye-cli -- setup --no-opencode
+cargo run -p sideeye-cli -- setup --no-opencode --repo .
 cargo run -p sideeye-cli -- doctor
 cargo run -p sideeye-cli -- validate packet.json
 cargo run -p sideeye-cli -- review --provider fake \

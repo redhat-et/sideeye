@@ -47,6 +47,9 @@ enum Command {
         /// Do not configure the OpenCode plugin.
         #[arg(long)]
         no_opencode: bool,
+        /// Git repository root the OpenCode session should review.
+        #[arg(long)]
+        repo: Option<PathBuf>,
     },
     /// Validate a normalized review packet from a file or stdin.
     Validate {
@@ -139,7 +142,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             judge_base_url,
             judge_api_key,
             no_opencode,
-        } => setup(judge_base_url, judge_api_key, no_opencode),
+            repo,
+        } => setup(judge_base_url, judge_api_key, no_opencode, repo),
         Command::Validate { packet } => validate(packet),
         Command::Packet {
             opencode_export,
@@ -379,6 +383,7 @@ fn setup(
     base_url: Option<String>,
     api_key: Option<String>,
     no_opencode: bool,
+    repo: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = config_path();
     let mut config: serde_json::Value = if path.exists() {
@@ -450,7 +455,7 @@ fn setup(
     if no_opencode || !opencode {
         println!("OpenCode plugin: skipped");
     } else {
-        match setup_ext::install_opencode_plugin() {
+        match setup_ext::install_opencode_plugin(repo.as_deref()) {
             Ok(path) => println!("OpenCode plugin: configured ({})", path.display()),
             Err(error) => return Err(error.into()),
         }
