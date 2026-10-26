@@ -238,6 +238,7 @@ function formatEstimate(estimate: AnyRecord, instructions = ""): string {
     `  estimated cost: $${Number(estimate.estimated_cost_usd ?? 0).toFixed(4)}`,
     `  input tokens: ${estimate.input_tokens ?? "unknown"}${estimate.exact === false ? " (estimated)" : ""}`,
     `  code: ${estimate.adapter_version ?? (estimate.max_tokens ? `rust (max ${estimate.max_tokens} output tokens)` : "unknown")}`,
+    ...(typeof estimate.model === "string" ? [`  judge: ${estimate.model}`] : []),
     ...(typeof estimate.turns === "number"
       ? [`  scope: ${estimate.turns} turns · ${estimate.has_diff ? `git diff (${estimate.artifacts} artifact(s), ${estimate.diff_complete ? "complete" : "partial"})` : "narrative only"}`]
       : []),

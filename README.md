@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.2
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.3
 
 ---
 
@@ -31,6 +31,7 @@ Then run the one-time setup:
 ```bash
 sideeye setup                      # run inside the project
 sideeye setup --repo /path/to/repo # or point at it explicitly
+sideeye setup --model claude-opus-4-8 --max-tokens 4096
 ```
 
 Setup:
@@ -79,7 +80,7 @@ The plugin adds a native TUI command and a server command:
 /sideeye --confirm                           # submit to the judge
 /sideeye security vulnerabilities and tests  # free-text focus
 /sideeye --confirm security vulnerabilities and tests
-/sideeye-review                              # server command
+/sideeye-review                              # server/API fallback
 ```
 
 Anything after `/sideeye` is free text that tells the judge what to focus on.

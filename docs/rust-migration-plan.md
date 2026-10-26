@@ -81,6 +81,8 @@ Finish the OpenCode product path before touching Claude Code or Codex.
 - [x] Plugin install and JSONC/profile detection.
 - [x] Raw verdict inserted without paraphrase.
 - [x] Show packet scope in the estimate: turns, diff artifact, complete/partial.
+- [x] Show the judge model in the estimate and configure it from setup.
+- [x] Emit a manifest artifact for the reviewed files.
 - [x] Persist the raw verdict record outside the model context.
 - [x] Enforce a hard timeout on the plugin's engine/judge call.
 - [ ] Isolated OpenCode smoke test with a fake judge (no network).

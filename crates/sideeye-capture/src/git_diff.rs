@@ -55,7 +55,7 @@ pub fn collect_diff_artifacts(
     let diff = run_git(&diff_args)?;
     content.push_str(&diff);
 
-    for path in safe {
+    for path in &safe {
         if is_tracked(repo, path)? {
             continue;
         }
@@ -78,12 +78,25 @@ pub fn collect_diff_artifacts(
     if escaped_path {
         content.push_str("\n... paths outside the repository were skipped ...\n");
     }
-    Ok(vec![Artifact {
-        kind: "git_diff".to_owned(),
-        path: None,
-        content,
-        complete,
-    }])
+    let manifest = serde_json::json!({
+        "files": safe.iter().map(|path| path.as_str()).collect::<Vec<_>>(),
+        "diff_complete": complete,
+        "limited": !complete,
+    });
+    Ok(vec![
+        Artifact {
+            kind: "git_diff".to_owned(),
+            path: None,
+            content,
+            complete,
+        },
+        Artifact {
+            kind: "manifest".to_owned(),
+            path: None,
+            content: manifest.to_string(),
+            complete: true,
+        },
+    ])
 }
 
 /// Resolve a touched path inside `repo`, refusing absolute paths and `..`
@@ -175,12 +188,15 @@ mod tests {
             &["a.txt".to_owned(), "new.txt".to_owned()],
         )
         .expect("artifacts");
-        assert_eq!(artifacts.len(), 1);
+        assert_eq!(artifacts.len(), 2);
         let artifact = &artifacts[0];
         assert_eq!(artifact.kind, "git_diff");
         assert!(artifact.complete);
         assert!(artifact.content.contains("+after"));
         assert!(artifact.content.contains("new file"));
+        assert_eq!(artifacts[1].kind, "manifest");
+        assert!(artifacts[1].content.contains("a.txt"));
+        assert!(artifacts[1].content.contains("new.txt"));
     }
 
     #[test]

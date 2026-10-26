@@ -50,6 +50,12 @@ enum Command {
         /// Git repository root the OpenCode session should review.
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Judge model id written to the plugin options.
+        #[arg(long, default_value = "claude-opus-4-8")]
+        model: String,
+        /// Judge output token ceiling written to the plugin options.
+        #[arg(long, default_value_t = 2048)]
+        max_tokens: u32,
     },
     /// Validate a normalized review packet from a file or stdin.
     Validate {
@@ -146,7 +152,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             judge_api_key,
             no_opencode,
             repo,
-        } => setup(judge_base_url, judge_api_key, no_opencode, repo),
+            model,
+            max_tokens,
+        } => setup(
+            judge_base_url,
+            judge_api_key,
+            no_opencode,
+            repo,
+            model,
+            max_tokens,
+        ),
         Command::Validate { packet } => validate(packet),
         Command::Packet {
             opencode_export,
@@ -405,6 +420,8 @@ fn setup(
     api_key: Option<String>,
     no_opencode: bool,
     repo: Option<PathBuf>,
+    model: String,
+    max_tokens: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = config_path();
     let mut config: serde_json::Value = if path.exists() {
@@ -476,7 +493,7 @@ fn setup(
     if no_opencode || !opencode {
         println!("OpenCode plugin: skipped");
     } else {
-        match setup_ext::install_opencode_plugin(repo.as_deref()) {
+        match setup_ext::install_opencode_plugin(repo.as_deref(), &model, max_tokens) {
             Ok(path) => println!("OpenCode plugin: configured ({})", path.display()),
             Err(error) => return Err(error.into()),
         }
