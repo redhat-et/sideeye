@@ -682,6 +682,7 @@ fn session_review(
     };
     let session_path = sideeye_capture::resolve_session(&request)?;
     let captured = sideeye_capture::parse_session_file(&session_path)?;
+    let client_name = captured.client.clone();
     let touched = captured
         .touched_files
         .iter()
@@ -721,6 +722,7 @@ fn session_review(
     }
     let verdict = judge.judge(&packet)?;
     verdict.validate()?;
+    let out = out.or_else(|| Some(state_home().join(format!("{client_name}-verdicts.jsonl"))));
     if let Some(path) = out {
         persist_verdict(&path, &packet, &verdict)?;
     }

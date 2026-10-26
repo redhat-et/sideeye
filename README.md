@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.7
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.8
 
 ---
 
@@ -159,6 +159,10 @@ sideeye label confirmed        # label the newest stored verdict
 sideeye stats                  # local precision/coverage/cost
 ```
 
+Session reviews persist to `~/.local/share/sideeye/<client>-verdicts.jsonl`.
+Use `sideeye stats --ledger ~/.local/share/sideeye/claude-verdicts.jsonl` for a
+non-OpenCode ledger, or pass the same `--ledger` to `label`.
+
 ### Judge-success metrics
 
 Labels are local-only and privacy-preserving. The label ledger stores only the
@@ -242,7 +246,7 @@ pytest -q
 (cd integrations/opencode && npm ci && npm run typecheck && npm test)
 ```
 
-Current coverage: **169 Python tests**, **71 Rust tests**, **10 OpenCode plugin
+Current coverage: **169 Python tests**, **72 Rust tests**, **10 OpenCode plugin
 tests**.
 
 ---
