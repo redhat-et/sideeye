@@ -115,6 +115,34 @@ fn setup_verify_uses_the_free_token_count_endpoint() {
 }
 
 #[test]
+fn saved_judge_route_wins_over_ambient_anthropic_base() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = dir.path().join("sideeye.json");
+    fs::write(
+        &config,
+        r#"{"judge":{"base_url":"https://judge.example","api_key":"saved-key"}}"#,
+    )
+    .expect("seed");
+    let output = Command::new(bin())
+        .env("SIDEEYE_CONFIG", &config)
+        .env_remove("SIDEEYE_JUDGE_API_KEY")
+        .env_remove("SIDEEYE_JUDGE_BASE_URL")
+        .env("ANTHROPIC_BASE_URL", "http://127.0.0.1:8787")
+        .args(["setup", "--no-opencode", "--yes"])
+        .output()
+        .expect("run setup");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config).expect("read config")).expect("json");
+    assert_eq!(saved["judge"]["base_url"], "https://judge.example");
+    assert_eq!(saved["judge"]["api_key"], "saved-key");
+}
+
+#[test]
 fn setup_without_credentials_fails_closed_noninteractively() {
     let dir = tempfile::tempdir().expect("tempdir");
     let config = dir.path().join("sideeye.json");
