@@ -26,6 +26,33 @@ pub enum CaptureError {
     NoTask,
 }
 
+/// Which part of the session the judge should see.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReviewScope {
+    /// All visible context in the session.
+    #[default]
+    Session,
+    /// The last real user request and the assistant work that followed it.
+    LastExchange,
+}
+
+impl ReviewScope {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_lowercase().as_str() {
+            "session" | "all" => Some(Self::Session),
+            "last" | "last-exchange" | "last_exchange" => Some(Self::LastExchange),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Session => "session",
+            Self::LastExchange => "last-exchange",
+        }
+    }
+}
+
 const SELF_REVIEW_MARKERS: &[&str] = &[
     "/sideeye",
     "sideeye ·",
@@ -45,6 +72,16 @@ pub fn from_opencode_export(
     export: &Value,
     artifacts: Vec<Artifact>,
 ) -> Result<ReviewPacket, CaptureError> {
+    from_opencode_export_scoped(export, artifacts, ReviewScope::Session)
+}
+
+/// Convert an OpenCode export into a packet scoped to all context or the last
+/// real user exchange.
+pub fn from_opencode_export_scoped(
+    export: &Value,
+    artifacts: Vec<Artifact>,
+    scope: ReviewScope,
+) -> Result<ReviewPacket, CaptureError> {
     let data = export.get("data").unwrap_or(export);
     if !data.is_object() {
         return Err(CaptureError::Invalid("data must be an object".to_owned()));
@@ -61,11 +98,22 @@ pub fn from_opencode_export(
         .filter(|id| !id.trim().is_empty())
         .ok_or_else(|| CaptureError::Invalid("session id is required".to_owned()))?;
 
+    let selected: &[Value] = match scope {
+        ReviewScope::Session => messages,
+        ReviewScope::LastExchange => {
+            let start = messages
+                .iter()
+                .rposition(is_real_user_request)
+                .ok_or(CaptureError::NoTask)?;
+            &messages[start..]
+        }
+    };
+
     let mut turns = Vec::new();
     let mut models: Vec<String> = Vec::new();
     let mut task: Option<String> = None;
 
-    for message in messages {
+    for message in selected {
         let kind = message.get("type").and_then(Value::as_str).unwrap_or("");
         match kind {
             "user" => {
@@ -119,15 +167,26 @@ pub fn from_opencode_export(
     }
 
     let task = task.ok_or(CaptureError::NoTask)?;
-    let model = info.get("model").and_then(model_name);
-    let generation_usage = usage(info.get("tokens"));
+    let (generator_model, generation_usage, packet_id) = match scope {
+        ReviewScope::Session => (
+            info.get("model").and_then(model_name),
+            usage(info.get("tokens")),
+            format!("opencode-{session_id}"),
+        ),
+        // Whole-session token totals would be misleading for a single exchange.
+        ReviewScope::LastExchange => (
+            models.first().cloned(),
+            None,
+            format!("opencode-{session_id}-last-exchange"),
+        ),
+    };
     let packet = ReviewPacket {
         schema_version: REVIEW_PACKET_SCHEMA.to_owned(),
-        packet_id: format!("opencode-{session_id}"),
+        packet_id,
         session_id: session_id.to_owned(),
         source: "opencode".to_owned(),
         client: "opencode".to_owned(),
-        generator_model: model,
+        generator_model,
         task,
         turns,
         artifacts,
@@ -136,6 +195,14 @@ pub fn from_opencode_export(
     };
     packet.validate()?;
     Ok(packet)
+}
+
+fn is_real_user_request(message: &Value) -> bool {
+    if message.get("type").and_then(Value::as_str) != Some("user") {
+        return false;
+    }
+    let text = message.get("text").and_then(Value::as_str).unwrap_or("");
+    !text.trim().is_empty() && !is_self_review(text)
 }
 
 fn model_name(value: &Value) -> Option<String> {
@@ -272,5 +339,71 @@ mod tests {
             from_opencode_export(&export, Vec::new()),
             Err(CaptureError::NoTask)
         ));
+    }
+
+    #[test]
+    fn last_exchange_drops_earlier_turns_and_sideeye_output() {
+        let export = serde_json::json!({
+            "data": {
+                "info": {"id": "ses-scope", "model": {"providerID": "openai", "id": "gpt-test"},
+                    "tokens": {"input": 900, "output": 100}},
+                "messages": [
+                    {"type": "user", "text": "first request"},
+                    {"type": "assistant", "model": {"providerID": "openai", "id": "gpt-test"},
+                        "content": [{"type": "text", "text": "first answer"}]},
+                    {"type": "user", "text": "second request"},
+                    {"type": "assistant", "model": {"providerID": "openai", "id": "gpt-test"},
+                        "content": [{"type": "text", "text": "second answer"}]},
+                    {"type": "user", "text": "/sideeye"},
+                    {"type": "assistant", "model": {"providerID": "openai", "id": "gpt-test"},
+                        "content": [{"type": "text", "text": "Side-Eye verdict: done"}]},
+                    {"type": "synthetic", "text": "Side-Eye verdict"}
+                ]
+            }
+        });
+        let packet = from_opencode_export_scoped(&export, Vec::new(), ReviewScope::LastExchange)
+            .expect("packet");
+        assert_eq!(packet.task, "second request");
+        assert_eq!(
+            packet
+                .turns
+                .iter()
+                .map(|turn| turn.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["second request", "second answer"]
+        );
+        assert_eq!(packet.generator_models, vec!["openai/gpt-test"]);
+        assert!(packet.generation_usage.is_none());
+        assert_eq!(packet.packet_id, "opencode-ses-scope-last-exchange");
+    }
+
+    #[test]
+    fn last_exchange_uses_the_last_real_request_when_sideeye_is_last() {
+        let packet = from_opencode_export_scoped(&fixture(), Vec::new(), ReviewScope::LastExchange)
+            .expect("packet");
+        assert_eq!(packet.task, "Fix the parser");
+        assert_eq!(
+            packet
+                .turns
+                .iter()
+                .map(|turn| &turn.role)
+                .collect::<Vec<_>>(),
+            vec![&Role::User, &Role::Assistant, &Role::Tool, &Role::Tool]
+        );
+        assert!(!packet.turns.iter().any(|turn| is_self_review(&turn.text)));
+    }
+
+    #[test]
+    fn scope_parser_accepts_user_facing_aliases() {
+        assert_eq!(ReviewScope::parse("all"), Some(ReviewScope::Session));
+        assert_eq!(ReviewScope::parse("session"), Some(ReviewScope::Session));
+        assert_eq!(ReviewScope::parse("last"), Some(ReviewScope::LastExchange));
+        assert_eq!(
+            ReviewScope::parse("LAST-EXCHANGE"),
+            Some(ReviewScope::LastExchange)
+        );
+        assert_eq!(ReviewScope::parse("everything"), None);
+        assert_eq!(ReviewScope::Session.as_str(), "session");
+        assert_eq!(ReviewScope::LastExchange.as_str(), "last-exchange");
     }
 }

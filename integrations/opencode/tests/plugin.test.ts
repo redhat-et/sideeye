@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { testHelpers } from "../src/index.js"
+import { pickAndReview } from "../src/tui.js"
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim()
@@ -79,16 +80,46 @@ test("runs a configured engine without a shell and tolerates early stdin close",
   assert.match(result.stdout, /\"type\":\"estimate\"/)
 })
 
-test("projects server session context into the adapter envelope", () => {
-  const projected = testHelpers.contextToExport(
-    "ses-test",
-    JSON.parse(readFileSync("tests/fixtures/real-context-messages.json", "utf8")),
-  )
-  assert.equal(projected.info.id, "ses-test")
-  assert.equal(projected.messages[0].type, "user")
-  assert.equal(projected.messages[0].text, "Fix the parser")
-  assert.equal(projected.messages[1].model.id, "gpt-test")
-  assert.equal(projected.messages.length, 2)
+test("parses review scope, instructions, and confirmation", () => {
+  assert.deepEqual(testHelpers.parseCommand("last security --confirm"), {
+    confirm: true,
+    scope: "last",
+    instructions: "security",
+  })
+  assert.deepEqual(testHelpers.parseCommand("all missing tests"), {
+    confirm: false,
+    scope: "all",
+    instructions: "missing tests",
+  })
+  assert.deepEqual(testHelpers.parseCommand("fix the parser"), {
+    confirm: false,
+    scope: undefined,
+    instructions: "fix the parser",
+  })
+  assert.deepEqual(testHelpers.parseCommand("--confirm"), {
+    confirm: true,
+    scope: undefined,
+    instructions: "",
+  })
+})
+
+test("estimate shows the scope and the matching confirmation command", () => {
+  const estimate = {
+    estimated_cost_usd: 0.12,
+    input_tokens: 12,
+    model: "claude-opus-4-8",
+    max_tokens: 2048,
+    turns: 2,
+    artifacts: 1,
+    has_diff: true,
+    diff_complete: true,
+  }
+  const last = testHelpers.formatEstimate(estimate, "security", "last")
+  assert.match(last, /scope: last exchange · 2 turns/)
+  assert.match(last, /Run \/sideeye last --confirm security/)
+  const all = testHelpers.formatEstimate(estimate, "", "all")
+  assert.match(all, /scope: whole session · 2 turns/)
+  assert.match(all, /Run \/sideeye all --confirm/)
 })
 
 test("review export estimates first and requires explicit confirmation", async () => {
@@ -164,12 +195,137 @@ test("rust engine builds a packet, estimates, then reviews on confirm", async ()
   assert.match(estimate, /estimate \(no judge call made\)/i)
   assert.match(estimate, /rust \(max 2048 output tokens\)/)
   assert.match(estimate, /judge: claude-opus-4-8/)
-  assert.match(estimate, /scope: 2 turns · git diff \(1 artifact\(s\), complete\)/)
+  assert.match(estimate, /scope: whole session · 2 turns · git diff \(1 artifact\(s\), complete\)/)
 
   const verdict = await testHelpers.reviewExport(session, data, options, "focus on security --confirm")
   assert.match(verdict, /rust fixture verdict/)
   assert.match(verdict, /--instructions focus on security/)
   assert.match(verdict, /--out /)
+})
+
+test("last scope is passed to the rust packet builder", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-scope-"))
+  const repo = join(workspace, "project")
+  mkdirSync(repo)
+  git(repo, ["init", "-q"])
+  git(repo, ["config", "user.email", "test@example.invalid"])
+  git(repo, ["config", "user.name", "Side-Eye Test"])
+  const file = join(repo, "answer.txt")
+  writeFile(file, "base\n")
+  git(repo, ["add", "answer.txt"])
+  git(repo, ["commit", "-qm", "base"])
+  writeFile(file, "after\n")
+  const argvLog = join(workspace, "argv.log")
+  const engine = join(workspace, "fake-rust.mjs")
+  writeFile(engine, [
+    "import {appendFileSync} from 'node:fs';",
+    `const log = ${JSON.stringify(argvLog)};`,
+    "appendFileSync(log, process.argv.slice(2).join(' ') + '\\n');",
+    "let input='';",
+    "process.stdin.on('data', (chunk) => input += chunk);",
+    "process.stdin.on('end', () => {",
+    "  const command = process.argv[2];",
+    "  const payload = command === 'packet' ? {ok: true} : command === 'estimate' ? {input_tokens: 1, estimated_cost_usd: 0, turns: 1, artifacts: 1, has_diff: true, diff_complete: true} : {score: 5, summary: 'scope fixture verdict'};",
+    "  process.stdout.write(JSON.stringify(payload) + '\\n');",
+    "});",
+  ].join("\n"))
+  const session = {location: {directory: repo}}
+  const data = {
+    info: {id: "ses-scope", model: {providerID: "openai", id: "gpt-test"}},
+    messages: [
+      {type: "user", text: "first"},
+      {type: "assistant", model: {providerID: "openai", id: "gpt-test"}, content: [{type: "text", text: "first answer"}]},
+      {type: "user", text: "second"},
+      {type: "assistant", model: {providerID: "openai", id: "gpt-test"}, content: [{type: "text", text: "second answer"}]},
+    ],
+  }
+  const verdict = await testHelpers.reviewExport(
+    session,
+    data,
+    {engine: "rust", rust: [process.execPath, engine]},
+    "last --confirm",
+  )
+  assert.match(verdict, /scope fixture verdict/)
+  const packetLine = readFileSync(argvLog, "utf8")
+    .split("\n")
+    .find((line) => line.startsWith("packet "))
+  assert.ok(packetLine, "packet command was invoked")
+  assert.match(packetLine, /--scope last-exchange/)
+})
+
+test("picker selects last exchange, collects instructions, and confirms", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-picker-"))
+  const repo = join(workspace, "project")
+  mkdirSync(repo)
+  git(repo, ["init", "-q"])
+  git(repo, ["config", "user.email", "test@example.invalid"])
+  git(repo, ["config", "user.name", "Side-Eye Test"])
+  const file = join(repo, "answer.txt")
+  writeFile(file, "base\n")
+  git(repo, ["add", "answer.txt"])
+  git(repo, ["commit", "-qm", "base"])
+  writeFile(file, "after\n")
+  const argvLog = join(workspace, "argv.log")
+  const engine = join(workspace, "fake-rust.mjs")
+  writeFile(engine, [
+    "import {appendFileSync} from 'node:fs';",
+    `const log = ${JSON.stringify(argvLog)};`,
+    "appendFileSync(log, process.argv.slice(2).join(' ') + '\\n');",
+    "let input='';",
+    "process.stdin.on('data', (chunk) => input += chunk);",
+    "process.stdin.on('end', () => {",
+    "  const command = process.argv[2];",
+    "  const payload = command === 'packet' ? {ok: true} : command === 'estimate' ? {input_tokens: 1, estimated_cost_usd: 0, model: 'claude-opus-4-8', max_tokens: 4096, turns: 2, artifacts: 1, has_diff: true, diff_complete: true} : {score: 5, summary: 'picker verdict'};",
+    "  process.stdout.write(JSON.stringify(payload) + '\\n');",
+    "});",
+  ].join("\n"))
+  const data = {
+    info: {id: "ses-picker", model: {providerID: "openai", id: "gpt-test"}},
+    messages: [
+      {type: "user", text: "first"},
+      {type: "assistant", model: {providerID: "openai", id: "gpt-test"}, content: [{type: "text", text: "first answer"}]},
+      {type: "user", text: "second"},
+      {type: "assistant", model: {providerID: "openai", id: "gpt-test"}, content: [{type: "text", text: "second answer"}]},
+    ],
+  }
+  const synthetic: string[] = []
+  let confirmation = ""
+  const context = {
+    options: {engine: "rust", rust: [process.execPath, engine], repo},
+    client: {
+      session: {
+        get: async () => ({location: {directory: repo}}),
+        export: async () => data,
+        synthetic: async ({text}: {text: string}) => { synthetic.push(text) },
+      },
+    },
+    ui: {
+      dialog: {
+        select: async () => "last",
+        prompt: async () => "focus on tests",
+        confirm: async (options: {message: string}) => {
+          confirmation = options.message
+          return true
+        },
+        alert: async ({message}: {message: string}) => { throw new Error(`unexpected alert: ${message}`) },
+      },
+      toast: {show: () => {}},
+    },
+  }
+
+  await pickAndReview(context as any, "ses-picker")
+
+  assert.equal(synthetic.length, 1)
+  assert.match(synthetic[0], /picker verdict/)
+  assert.match(confirmation, /Side-Eye estimate/)
+  assert.match(confirmation, /scope: last exchange/)
+  const lines = readFileSync(argvLog, "utf8").split("\n")
+  const packetLine = lines.find((line) => line.startsWith("packet "))
+  assert.ok(packetLine, "packet command was invoked")
+  assert.match(packetLine, /--scope last-exchange/)
+  const estimateLine = lines.find((line) => line.startsWith("estimate "))
+  assert.ok(estimateLine, "estimate command was invoked")
+  assert.match(estimateLine, /--instructions focus on tests/)
 })
 
 test("rust engine call times out instead of hanging", async () => {
@@ -195,26 +351,4 @@ test("rust engine call times out instead of hanging", async () => {
     {engine: "rust", rust: [process.execPath, engine], timeoutMs: 100},
   )
   assert.match(result, /timed out after 100ms/i)
-})
-
-test("server command path accepts recorded SessionMessageInfo[] data", async () => {
-  const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-server-"))
-  const repo = join(workspace, "project")
-  mkdirSync(repo)
-  git(repo, ["init", "-q"])
-  const file = join(repo, "parser.rs")
-  writeFile(file, "parser\n")
-  const fake = join(workspace, "fake-engine.mjs")
-  writeFile(fake, "process.stdout.write(JSON.stringify({type:'estimate', estimated_cost_usd:0.01, input_tokens:1, exact:true, adapter_version:'v0-blind'}) + '\\n')\n")
-  const context = JSON.parse(readFileSync("tests/fixtures/real-context-messages.json", "utf8"))
-  context[1].content[2].state.input.path = file
-  const ctx = {
-    options: {command: [process.execPath, fake]},
-    session: {
-      get: async () => ({location: {directory: workspace}}),
-      context: async () => context,
-    },
-  }
-  const result = await testHelpers.reviewSession(ctx as any, "ses-server")
-  assert.match(result, /estimate \(no judge call made\)/i)
 })

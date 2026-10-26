@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.3
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.4
 
 ---
 
@@ -29,19 +29,24 @@ uv tool install git+https://github.com/redhat-et/sideeye
 Then run the one-time setup:
 
 ```bash
-sideeye setup                      # run inside the project
+sideeye setup                      # guided wizard
 sideeye setup --repo /path/to/repo # or point at it explicitly
 sideeye setup --model claude-opus-4-8 --max-tokens 4096
+sideeye setup --yes                # accept defaults (scripts)
 ```
 
-Setup:
+Setup is a guided flow:
 
-- asks once for a hidden judge credential;
+- shows the detected harnesses;
+- asks only for missing route/model/repo values;
+- prompts once for a hidden judge credential;
 - stores it in Side-Eye config with mode `600`;
-- detects Claude Code, Codex, and OpenCode;
 - installs and configures the bundled OpenCode plugin;
 - preserves unrelated JSON/JSONC settings;
-- selects the Rust engine when `sideeye` is on `PATH`.
+- selects the Rust engine when `sideeye` is on `PATH`;
+- verifies the route with a free `count_tokens` call when interactive.
+
+Run `sideeye setup --help` for examples and automation flags.
 
 > **Migration note:** setup and the Rust engine ship as `sideeye`. The Python
 > CLI is `sideeye-py` and remains the session/advise fallback until those ports
@@ -50,7 +55,8 @@ Setup:
 Check the judge route without spending:
 
 ```bash
-sideeye doctor         # must say: route guard: passed
+sideeye doctor          # offline: route guard must say "passed"
+sideeye doctor --verify # free count_tokens check of route, key, and model
 ```
 
 ### Judge route
@@ -73,18 +79,22 @@ Ambient Anthropic credentials are not sent to a foreign base unless you set
 
 ### OpenCode
 
-The plugin adds a native TUI command and a server command:
+The plugin adds one native TUI command. With no arguments it opens a scope
+picker, then asks for optional extra instructions:
 
 ```text
-/sideeye                                     # free estimate
-/sideeye --confirm                           # submit to the judge
-/sideeye security vulnerabilities and tests  # free-text focus
-/sideeye --confirm security vulnerabilities and tests
-/sideeye-review                              # server/API fallback
+/sideeye                    # pick Last exchange or Whole session
+/sideeye last               # estimate the last request + response
+/sideeye all                # estimate the whole session
+/sideeye last --confirm     # submit the last exchange
+/sideeye all --confirm      # submit the whole session
+/sideeye all security and missing tests
 ```
 
-Anything after `/sideeye` is free text that tells the judge what to focus on.
-Only `--confirm` is special.
+The scope picker shows the free estimate and asks for confirmation before any
+judge spend. Extra text is reviewer instruction on top of the rubric; only
+`--confirm` is special. The old `sideeye-review` server command and alias were
+removed — `/sideeye` is the single user-facing command.
 
 Flow:
 
@@ -187,7 +197,7 @@ pytest -q
 (cd integrations/opencode && npm ci && npm run typecheck && npm test)
 ```
 
-Current coverage: **169 Python tests**, **36 Rust tests**, **7 OpenCode plugin
+Current coverage: **169 Python tests**, **50 Rust tests**, **10 OpenCode plugin
 tests**.
 
 ---
@@ -198,7 +208,7 @@ tests**.
 crates/                     Rust core, capture, providers, CLI
 adapters/                   Python Claude Code, Codex, OpenCode adapters
 judge/                      Python judge, schema, transcript
-integrations/opencode/      native OpenCode server/TUI plugin
+integrations/opencode/      native OpenCode TUI plugin
 rubric/                     grading rubrics
 scripts/                    version, demo, and release checks
 docs/                       demo, architecture, scope, releasing
@@ -213,15 +223,20 @@ escalate.py, advise.py      Python review/advice engines
 Working today: Claude Code plugin, OpenCode native plugin, Codex CLI adapter,
 Rust contracts/capture/estimate/Anthropic judge, secure setup, releases, demo.
 
-Next:
+Next, in order:
 
-- cross-harness conformance CI ([#2](https://github.com/redhat-et/sideeye/issues/2))
-- provider-neutral Rust engine completion ([#3](https://github.com/redhat-et/sideeye/issues/3))
-- opt-in, privacy-preserving judge metrics ([#5](https://github.com/redhat-et/sideeye/issues/5))
-- native Codex UX
-- whole-repository review scope
-- raw verdict viewer and scoreboard
-- OpenClaw adapter ([#7](https://github.com/redhat-et/sideeye/issues/7))
+1. provider-neutral judging: OpenAI-compatible, gateway, and local providers
+   ([#3](https://github.com/redhat-et/sideeye/issues/3));
+2. Rust session review + `advise`, then native Claude Code and Codex paths;
+3. local judge-success ledger and `sideeye stats`
+   ([#5](https://github.com/redhat-et/sideeye/issues/5));
+4. cross-harness conformance CI
+   ([#2](https://github.com/redhat-et/sideeye/issues/2));
+5. raw verdict viewer and scoreboard;
+6. OpenClaw adapter ([#7](https://github.com/redhat-et/sideeye/issues/7)).
+
+Windows support is explicitly out of scope for now
+([#32](https://github.com/redhat-et/sideeye/issues/32)).
 
 ---
 

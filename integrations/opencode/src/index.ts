@@ -2,54 +2,47 @@ import { existsSync, statSync } from "node:fs"
 import { dirname, isAbsolute, join, resolve } from "node:path"
 import { homedir } from "node:os"
 import { spawn } from "node:child_process"
-import type { CommandInvocation } from "@opencode/plugin/promise/command"
-import type { Context as ServerContext } from "@opencode/plugin/promise/plugin"
 
 type AnyRecord = Record<string, any>
+export type ReviewScope = "last" | "all"
 
 const ABSOLUTE_PATH = /(?:\/(?:Users|home|workspace|private|tmp|var)\/)[^\s"'`]+/g
 
+// OpenCode requires a server entrypoint for this package. The user-facing
+// command lives in the TUI, so the server plugin intentionally adds nothing.
 export default {
   id: "sideeye.opencode",
-  async setup(ctx: ServerContext) {
-    await ctx.command.transform((editor) => {
-      editor.add({
-        name: "sideeye-review",
-        description: "Review the current OpenCode session with Side-Eye",
-        execute: async ({ sessionID, prompt }: CommandInvocation) => {
-          const result = await reviewSession(ctx, sessionID, prompt.text)
-          await ctx.session.synthetic({ sessionID, text: result })
-        },
-      })
-    })
-  },
+  setup() {},
 }
 
-async function reviewSession(ctx: ServerContext, sessionID: string, commandText = ""): Promise<string> {
-  try {
-    const session = await ctx.session.get({ sessionID })
-    const context = await ctx.session.context({ sessionID })
-    const data = contextToExport(sessionID, context)
-    return reviewExport(session, data, ctx.options, commandText)
-  } catch (error) {
-    return `Side-Eye review could not start: ${error instanceof Error ? error.message : String(error)}`
-  }
-}
-
-/** Run the bridge against either server-projected context or a full client export. */
+/** Run the bridge against a full sanitized OpenCode export. */
 export async function reviewExport(
   session: AnyRecord,
   data: AnyRecord,
   options: AnyRecord = {},
   commandText = "",
+  estimateHint = true,
 ): Promise<string> {
   try {
     const repo = await findRepository(session, data, options.repo as string | undefined)
     const diffBase = await gitMergeBase(repo)
     const touchedFiles = await gitTouchedFiles(repo, diffBase, data)
-    const { confirm, instructions } = parseCommand(commandText)
+    const { confirm, scope, instructions } = parseCommand(commandText)
     if (options.engine === "rust") {
-      return reviewWithRust(repo, diffBase, touchedFiles, data, options, confirm, instructions)
+      return reviewWithRust(
+        repo,
+        diffBase,
+        touchedFiles,
+        data,
+        options,
+        confirm,
+        instructions,
+        scope,
+        estimateHint,
+      )
+    }
+    if (scope === "last") {
+      return "Last-exchange scope requires the Rust engine (`engine: rust`). Re-run setup with `sideeye` on PATH."
     }
     if (instructions) {
       return "Focus instructions require the Rust engine (`engine: rust`). Re-run setup with `sideeye` on PATH."
@@ -90,10 +83,12 @@ async function reviewWithRust(
   options: AnyRecord,
   confirm: boolean,
   instructions: string,
+  scope: ReviewScope | undefined,
+  estimateHint: boolean,
 ): Promise<string> {
   const rust = Array.isArray(options.rust) ? options.rust : [options.rust ?? "sideeye"]
   const model = typeof options.model === "string" ? options.model : "claude-opus-4-8"
-  const maxTokens = Number.isInteger(options.maxTokens) ? String(options.maxTokens) : "2048"
+  const maxTokens = Number.isInteger(options.maxTokens) ? String(options.maxTokens) : "4096"
   const args = [...rust.slice(1)]
   const focus = instructions ? ["--instructions", instructions] : []
   const timeoutMs = Number.isInteger(options.timeoutMs) ? Number(options.timeoutMs) : 300000
@@ -102,9 +97,10 @@ async function reviewWithRust(
       ? options.out
       : join(homedir(), ".local", "share", "sideeye", "opencode-verdicts.jsonl")
   const touched = touchedFiles.flatMap((file) => ["--touched-file", String(file.path)])
+  const packetScope = scope === "last" ? "last-exchange" : "session"
   const packetRun = await run(rust[0], [
     ...args, "packet", "--opencode-export", "-", "--redact",
-    "--repo", repo, "--diff-base", diffBase, ...touched,
+    "--repo", repo, "--diff-base", diffBase, "--scope", packetScope, ...touched,
   ], JSON.stringify(data), repo, timeoutMs)
   if (packetRun.code !== 0) {
     return `Side-Eye packet build failed before producing a verdict.\n\n${packetRun.stderr || packetRun.stdout}`
@@ -121,7 +117,7 @@ async function reviewWithRust(
   }
   const estimateRecord = lastJsonObject(estimate.stdout)
   if (!estimateRecord) return `Side-Eye returned no structured estimate.\n\n${estimate.stdout}`
-  if (!confirm) return formatEstimate(estimateRecord, instructions)
+  if (!confirm) return formatEstimate(estimateRecord, instructions, scope, estimateHint)
 
   const out = await run(rust[0], [
     ...args, "review", "-", "--provider", "anthropic",
@@ -136,103 +132,15 @@ async function reviewWithRust(
   return `Side-Eye verdict (raw structured record):\n${JSON.stringify(record, null, 2)}`
 }
 
-function contextToExport(sessionID: string, context: unknown): AnyRecord {
-  const messages = Array.isArray(context)
-    ? context
-    : ((context as AnyRecord)?.messages ?? [])
-  const latestModel = [...messages]
-    .reverse()
-    .find((message: AnyRecord) => message.type === "assistant" && message.model)?.model
-    ?? (context as AnyRecord)?.model
-    ?? {}
-  return {
-    info: {
-      id: sessionID,
-      model: { providerID: latestModel.providerID, id: latestModel.id },
-    },
-    messages: messages.flatMap((message: AnyRecord) => normalizeMessage(message, latestModel)),
-  }
-}
-
-function normalizeMessage(message: AnyRecord, model: AnyRecord): AnyRecord[] {
-  if (message.type === "user") {
-    return [{type: "user", text: message.text ?? "", files: message.files}]
-  }
-  if (message.type === "assistant") {
-    return [{
-      type: "assistant",
-      model: message.model ?? model,
-      content: message.content ?? [],
-    }]
-  }
-  if (message.type !== undefined) return []
-
-  // Keep support for the internal AI-message shape used by older fixtures.
-  if (message.role === "user") {
-    return [{ type: "user", text: textParts(message.content) }]
-  }
-  if (message.role === "assistant") {
-    return [{
-      type: "assistant",
-      model: { providerID: model.providerID, id: model.id },
-      content: (message.content ?? []).flatMap((part: AnyRecord) => normalizePart(part)),
-    }]
-  }
-  if (message.role === "tool") {
-    return [{
-      type: "assistant",
-      model: { providerID: model.providerID, id: model.id },
-      content: (message.content ?? []).map((part: AnyRecord) => ({
-        type: "tool",
-        name: part.name ?? "tool",
-        state: {
-          status: part.type === "tool-result" && part.result?.type === "error" ? "error" : "completed",
-          input: part.input,
-          error: part.result?.type === "error" ? part.result.value : undefined,
-          content: [{ type: "text", text: resultText(part.result) }],
-        },
-      })),
-    }]
-  }
-  return []
-}
-
-function normalizePart(part: AnyRecord): AnyRecord[] {
-  if (part.type === "text") return [part]
-  if (part.type === "tool-call") {
-    return [{ type: "tool", name: part.name, state: { status: "running", input: part.input } }]
-  }
-  if (part.type === "tool-result") {
-    return [{
-      type: "tool",
-      name: part.name,
-      state: {
-        status: part.result?.type === "error" ? "error" : "completed",
-        input: part.input,
-        error: part.result?.type === "error" ? part.result.value : undefined,
-        content: [{ type: "text", text: resultText(part.result) }],
-      },
-    }]
-  }
-  return []
-}
-
-function textParts(parts: unknown): string {
-  return Array.isArray(parts)
-    ? parts.filter((part): part is AnyRecord => Boolean(part && typeof part === "object" && part.type === "text"))
-      .map((part) => part.text).join("")
-    : ""
-}
-
-function resultText(result: AnyRecord | undefined): string {
-  if (!result) return "(no output)"
-  if (result.type === "text" || result.type === "error") return String(result.value)
-  if (result.type === "json") return JSON.stringify(result.value)
-  if (result.type === "content") return textParts(result.value)
-  return JSON.stringify(result)
-}
-
-function formatEstimate(estimate: AnyRecord, instructions = ""): string {
+export function formatEstimate(
+  estimate: AnyRecord,
+  instructions = "",
+  scope?: ReviewScope,
+  showHint = true,
+): string {
+  const scopeLabel = scope === "last" ? "last exchange" : "whole session"
+  const scopeToken = scope === "last" ? "last " : scope === "all" ? "all " : ""
+  const hint = `Run /sideeye ${scopeToken}--confirm${instructions ? ` ${instructions}` : ""} to submit this packet to the judge.`
   return [
     "Side-Eye estimate (no judge call made):",
     `  estimated cost: $${Number(estimate.estimated_cost_usd ?? 0).toFixed(4)}`,
@@ -240,18 +148,27 @@ function formatEstimate(estimate: AnyRecord, instructions = ""): string {
     `  code: ${estimate.adapter_version ?? (estimate.max_tokens ? `rust (max ${estimate.max_tokens} output tokens)` : "unknown")}`,
     ...(typeof estimate.model === "string" ? [`  judge: ${estimate.model}`] : []),
     ...(typeof estimate.turns === "number"
-      ? [`  scope: ${estimate.turns} turns · ${estimate.has_diff ? `git diff (${estimate.artifacts} artifact(s), ${estimate.diff_complete ? "complete" : "partial"})` : "narrative only"}`]
+      ? [`  scope: ${scopeLabel} · ${estimate.turns} turns · ${estimate.has_diff ? `git diff (${estimate.artifacts} artifact(s), ${estimate.diff_complete ? "complete" : "partial"})` : "narrative only"}`]
       : []),
     ...(instructions ? [`  request: ${instructions}`] : []),
-    "",
-    `Run /sideeye --confirm${instructions ? ` ${instructions}` : ""} to submit this packet to the judge.`,
+    ...(showHint ? ["", hint] : []),
   ].join("\n")
 }
 
-function parseCommand(commandText: string): {confirm: boolean; instructions: string} {
+export function parseCommand(commandText: string): {
+  confirm: boolean
+  scope?: ReviewScope
+  instructions: string
+} {
   const confirm = /\B--confirm\b/.test(commandText)
-  const instructions = commandText.replace(/\B--confirm\b/g, "").trim()
-  return {confirm, instructions}
+  let rest = commandText.replace(/\B--confirm\b/g, "").trim()
+  let scope: ReviewScope | undefined
+  const match = rest.match(/^(last|last-exchange|last_exchange|all|session|context)(?:\s+|$)/i)
+  if (match) {
+    scope = match[1].toLowerCase().startsWith("last") ? "last" : "all"
+    rest = rest.slice(match[0].length).trim()
+  }
+  return {confirm, scope, instructions: rest}
 }
 
 async function findRepository(session: AnyRecord, exportData: AnyRecord, configured?: string): Promise<string> {
@@ -442,11 +359,11 @@ function runProcess(
 // Kept as a narrow test seam; the plugin's public surface remains the
 // OpenCode Plugin definition above.
 export const testHelpers = {
-  contextToExport,
   findRepository,
+  formatEstimate,
   gitMergeBase,
   gitTouchedFiles,
-  reviewSession,
+  parseCommand,
   reviewExport,
   run,
 }

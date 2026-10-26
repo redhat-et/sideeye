@@ -11,6 +11,7 @@ use std::os::unix::fs::PermissionsExt;
 mod setup_ext;
 
 use clap::{Parser, Subcommand};
+use dialoguer::{Confirm, Input};
 use serde_json::Value;
 use sideeye_core::ReviewPacket;
 use sideeye_providers::{FakeJudgeProvider, JudgeProvider};
@@ -21,7 +22,9 @@ const AMBIENT_BASE_DEFAULT: &str = "https://api.anthropic.com";
 #[command(
     name = "sideeye",
     version,
-    about = "Provider-neutral Side-Eye core (experimental)"
+    about = "Ask a strong judge to review an AI coding session",
+    long_about = "Side-Eye is an independent quality-control judge for AI coding sessions.\n\nRun `sideeye setup` once, then ask for a review from your harness. The judge is a different model from the one that wrote the code.",
+    after_help = "Examples:\n  sideeye setup\n  sideeye setup --repo ~/code/project\n  sideeye doctor\n  sideeye doctor --verify\n\nOpenCode:\n  run /sideeye after setup"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -30,13 +33,27 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Show judge-route readiness without making a network request.
+    /// Show judge-route readiness and safety guards.
+    #[command(
+        long_about = "Show which judge route and credential Side-Eye resolves, and whether the safety guards pass. This is offline by default. Add --verify for a free count_tokens check that proves the route, key, and model work without spending.",
+        after_help = "Examples:\n  sideeye doctor\n  sideeye doctor --verify\n  sideeye doctor --base-url http://127.0.0.1:1234"
+    )]
     Doctor {
         /// Judge base URL override; useful for an explicit local/gateway route.
         #[arg(long)]
         base_url: Option<String>,
+        /// Make a free count_tokens request to verify the route and model.
+        #[arg(long)]
+        verify: bool,
+        /// Judge model to check with --verify.
+        #[arg(long, default_value = "claude-opus-4-8")]
+        model: String,
     },
-    /// Configure the judge route and detect harnesses.
+    /// Configure the judge route and install the harness plugin.
+    #[command(
+        long_about = "Configure Side-Eye in one guided flow.\n\nIn a terminal, setup asks only for what it needs, installs the detected harness plugin, and can verify the judge route with a free token-count call. The API key prompt is hidden and the key is never printed. Use --yes for scripts.",
+        after_help = "Examples:\n  sideeye setup\n  sideeye setup --repo ~/code/project\n  sideeye setup --model claude-opus-4-8 --max-tokens 4096\n  sideeye setup --judge-base-url https://gateway.example --no-opencode --yes\n\nThe key can also come from SIDEEYE_JUDGE_API_KEY; the base URL from SIDEEYE_JUDGE_BASE_URL."
+    )]
     Setup {
         /// Judge base URL override.
         #[arg(long)]
@@ -54,8 +71,17 @@ enum Command {
         #[arg(long, default_value = "claude-opus-4-8")]
         model: String,
         /// Judge output token ceiling written to the plugin options.
-        #[arg(long, default_value_t = 2048)]
+        #[arg(long, default_value_t = 4096)]
         max_tokens: u32,
+        /// Accept the supplied/default answers without interactive prompts.
+        #[arg(long)]
+        yes: bool,
+        /// Run a free count_tokens check after writing the config.
+        #[arg(long)]
+        verify: bool,
+        /// Skip the free count_tokens check in the interactive wizard.
+        #[arg(long)]
+        no_verify: bool,
     },
     /// Validate a normalized review packet from a file or stdin.
     Validate {
@@ -82,6 +108,9 @@ enum Command {
         /// Character budget for the packet; 0 disables budgeting.
         #[arg(long, default_value_t = 400_000)]
         max_packet_chars: usize,
+        /// Review scope: `session` for all context, `last-exchange` for the last request.
+        #[arg(long, default_value = "session")]
+        scope: String,
     },
     /// Estimate input tokens and cost without calling the judge.
     Estimate {
@@ -146,7 +175,11 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
-        Command::Doctor { base_url } => doctor(base_url),
+        Command::Doctor {
+            base_url,
+            verify,
+            model,
+        } => doctor(base_url, verify, model),
         Command::Setup {
             judge_base_url,
             judge_api_key,
@@ -154,6 +187,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             repo,
             model,
             max_tokens,
+            yes,
+            verify,
+            no_verify,
         } => setup(
             judge_base_url,
             judge_api_key,
@@ -161,6 +197,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             repo,
             model,
             max_tokens,
+            yes,
+            verify,
+            no_verify,
         ),
         Command::Validate { packet } => validate(packet),
         Command::Packet {
@@ -170,6 +209,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             diff_base,
             touched_files,
             max_packet_chars,
+            scope,
         } => packet_from_opencode(
             opencode_export,
             redact,
@@ -177,6 +217,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             diff_base,
             touched_files,
             max_packet_chars,
+            scope,
         ),
         Command::Estimate {
             packet,
@@ -336,6 +377,7 @@ fn guard_self_grading(packet: &ReviewPacket, judge_model: &str) -> Result<(), St
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn packet_from_opencode(
     export_path: PathBuf,
     redact: bool,
@@ -343,13 +385,16 @@ fn packet_from_opencode(
     diff_base: String,
     touched_files: Vec<String>,
     max_packet_chars: usize,
+    scope: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let export: serde_json::Value = serde_json::from_str(&read_input(export_path)?)?;
     let artifacts = match repo {
         Some(repo) => sideeye_capture::collect_diff_artifacts(&repo, &diff_base, &touched_files)?,
         None => Vec::new(),
     };
-    let packet = sideeye_capture::from_opencode_export(&export, artifacts)?;
+    let scope = sideeye_capture::ReviewScope::parse(&scope)
+        .ok_or_else(|| format!("unknown scope {scope:?}; use session or last-exchange"))?;
+    let packet = sideeye_capture::from_opencode_export_scoped(&export, artifacts, scope)?;
     let packet = if redact { packet.redacted() } else { packet };
     let packet = packet.budgeted(max_packet_chars);
     packet.validate()?;
@@ -415,6 +460,7 @@ fn write_json_secure(path: &Path, value: &serde_json::Value) -> io::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn setup(
     base_url: Option<String>,
     api_key: Option<String>,
@@ -422,7 +468,11 @@ fn setup(
     repo: Option<PathBuf>,
     model: String,
     max_tokens: u32,
+    yes: bool,
+    verify: bool,
+    no_verify: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let interactive = !yes && io::stdin().is_terminal();
     let path = config_path();
     let mut config: serde_json::Value = if path.exists() {
         serde_json::from_str(&fs::read_to_string(&path)?).unwrap_or_else(|_| serde_json::json!({}))
@@ -438,58 +488,120 @@ fn setup(
         .filter(serde_json::Value::is_object)
         .unwrap_or_else(|| serde_json::json!({}));
 
-    let existing = judge
+    println!("Side-Eye setup");
+    println!("The judge is independent of the model that wrote the code.\n");
+
+    let existing_base = judge
+        .get("base_url")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    let mut selected_base = base_url
+        .or_else(|| nonempty_env("SIDEEYE_JUDGE_BASE_URL"))
+        .or_else(|| nonempty_env("ANTHROPIC_BASE_URL"))
+        .or(existing_base)
+        .unwrap_or_else(|| AMBIENT_BASE_DEFAULT.to_owned());
+    if interactive {
+        selected_base = prompt_input("Judge base URL", &selected_base)?;
+    }
+    selected_base = normalize_base_url(&selected_base);
+    if selected_base.is_empty() {
+        return Err("judge base URL cannot be empty".into());
+    }
+    judge["base_url"] = serde_json::json!(selected_base);
+
+    let existing_key = judge
         .get("api_key")
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned);
     let mut key = api_key
-        .or_else(|| env::var("SIDEEYE_JUDGE_API_KEY").ok())
-        .or(existing);
-    if key.as_deref().map(str::trim).unwrap_or("").is_empty() {
-        if !io::stdin().is_terminal() {
+        .or_else(|| nonempty_env("SIDEEYE_JUDGE_API_KEY"))
+        .or(existing_key.clone());
+    let keep_existing = match (&key, &existing_key, interactive) {
+        (Some(_), Some(_), true) if key.as_deref() == existing_key.as_deref() => Confirm::new()
+            .with_prompt("Keep the existing judge API key?")
+            .default(true)
+            .interact()?,
+        _ => false,
+    };
+    if !keep_existing && (key.is_none() || key.as_deref() == existing_key.as_deref()) {
+        if interactive {
+            key = Some(rpassword::prompt_password("Judge API key (hidden): ")?);
+        } else if key.is_none() {
             return Err(
                 "no judge credential configured; set SIDEEYE_JUDGE_API_KEY or run sideeye setup in an interactive terminal".into(),
             );
         }
-        key = Some(rpassword::prompt_password(
-            "Side-Eye judge API key (hidden): ",
-        )?);
     }
     let key = key.unwrap_or_default();
     if key.trim().is_empty() {
         return Err("judge API key cannot be empty".into());
     }
     judge["api_key"] = serde_json::json!(key.trim());
+    let key = key.trim().to_owned();
 
-    let selected = base_url
-        .or_else(|| env::var("SIDEEYE_JUDGE_BASE_URL").ok())
-        .or_else(|| {
-            judge
-                .get("base_url")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-        });
-    if let Some(value) = selected {
-        judge["base_url"] = serde_json::json!(normalize_base_url(&value));
-    } else if let Some(object) = judge.as_object_mut() {
-        object.remove("base_url");
+    let mut model = model;
+    let mut max_tokens = max_tokens;
+    if interactive {
+        model = prompt_input("Judge model", &model)?;
+        max_tokens = prompt_u32("Output token ceiling", max_tokens)?;
     }
-    config["judge"] = judge;
-    write_json_secure(&path, &config)?;
 
-    println!("judge route: configured ({})", path.display());
     let harnesses = detect_harnesses();
-    for (name, detected) in harnesses {
-        println!(
-            "{name}: {}",
-            if detected { "detected" } else { "not detected" }
-        );
-    }
     let opencode = harnesses
         .iter()
         .find(|(name, _)| *name == "OpenCode")
         .map(|(_, detected)| *detected)
         .unwrap_or(false);
+
+    let mut repo = repo;
+    if interactive && opencode {
+        let suggestion = current_git_root()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let entered = Input::<String>::new()
+            .with_prompt("Repository to review (blank = auto-detect per session)")
+            .with_initial_text(suggestion)
+            .allow_empty(true)
+            .interact_text()?;
+        let entered = entered.trim();
+        if !entered.is_empty() {
+            repo = Some(PathBuf::from(entered));
+        }
+    }
+
+    if let Some(path) = &repo
+        && !is_git_repository(path)
+    {
+        return Err(format!(
+            "OpenCode review repository is not a git checkout: {}",
+            path.display()
+        )
+        .into());
+    }
+
+    config["judge"] = judge;
+    write_json_secure(&path, &config)?;
+
+    println!();
+    println!("Judge route: {}", selected_base);
+    println!("Judge model: {model} (max {max_tokens} output tokens)");
+    for (name, detected) in &harnesses {
+        println!(
+            "{name}: {}",
+            if *detected {
+                "detected"
+            } else {
+                "not detected"
+            }
+        );
+    }
+    println!(
+        "Review repository: {}",
+        repo.as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "auto-detect per session".to_owned())
+    );
+
     if no_opencode || !opencode {
         println!("OpenCode plugin: skipped");
     } else {
@@ -498,11 +610,94 @@ fn setup(
             Err(error) => return Err(error.into()),
         }
     }
-    println!("Run `sideeye doctor` to verify the route without spending.");
+
+    let should_verify = verify || (interactive && !no_verify);
+    if should_verify {
+        match probe_route(&selected_base, &key, &model) {
+            Ok(tokens) => println!("Free judge check: OK ({tokens} input tokens; no review spend)"),
+            Err(error) => {
+                println!("Free judge check: failed: {error}");
+                println!("Config saved. Fix the route and run `sideeye doctor --verify`.");
+                if verify {
+                    return Err(error);
+                }
+            }
+        }
+    }
+
+    println!();
+    println!("Next:");
+    println!("  1. Restart OpenCode (plugins load at startup).");
+    println!("  2. In a session, run /sideeye.");
+    println!(
+        "  3. Choose Last exchange or Whole session, add optional instructions, confirm the estimate."
+    );
+    println!("Run `sideeye doctor` to check the route without spending.");
     Ok(())
 }
 
-fn doctor(base_url: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+fn prompt_input(prompt: &str, default: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let value = Input::<String>::new()
+        .with_prompt(prompt)
+        .with_initial_text(default)
+        .interact_text()?;
+    let value = value.trim().to_owned();
+    Ok(if value.is_empty() {
+        default.to_owned()
+    } else {
+        value
+    })
+}
+
+fn prompt_u32(prompt: &str, default: u32) -> Result<u32, Box<dyn std::error::Error>> {
+    let value = prompt_input(prompt, &default.to_string())?;
+    value
+        .parse::<u32>()
+        .map_err(|_| format!("{prompt} must be a positive integer").into())
+}
+
+fn current_git_root() -> Option<PathBuf> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+    (!path.is_empty()).then(|| PathBuf::from(path))
+}
+
+fn is_git_repository(path: &Path) -> bool {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn probe_route(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+) -> Result<u64, Box<dyn std::error::Error>> {
+    let provider = sideeye_providers::AnthropicProvider::new(
+        base_url,
+        api_key,
+        model,
+        EMBEDDED_RUBRIC,
+        "rubric_session_v2",
+    );
+    Ok(provider.probe()?)
+}
+
+fn doctor(
+    base_url: Option<String>,
+    verify: bool,
+    model: String,
+) -> Result<(), Box<dyn std::error::Error>> {
     let config = load_judge_config();
     let mut route = resolve_judge_route(&config);
     if base_url.is_some() {
@@ -526,7 +721,19 @@ fn doctor(base_url: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     println!("  route source:  {}", route.source.unwrap_or("none"));
     validate_route(&route)?;
     println!("  route guard:   passed");
-    println!("  verdict:       ready for provider adapter configuration");
+    if verify {
+        let base = route
+            .base
+            .as_deref()
+            .ok_or("no judge base URL configured")?;
+        let key = route
+            .key
+            .as_deref()
+            .ok_or("no judge credential configured")?;
+        let tokens = probe_route(base, key, &model)?;
+        println!("  free check:    OK ({tokens} input tokens; no review spend)");
+    }
+    println!("  verdict:       ready");
     Ok(())
 }
 

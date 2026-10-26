@@ -148,6 +148,25 @@ impl AnthropicProvider {
         !self.model.starts_with("claude-opus-5")
     }
 
+    fn probe_body(&self) -> Value {
+        json!({
+            "model": self.model,
+            "messages": [{"role": "user", "content": "sideeye setup check"}],
+        })
+    }
+
+    /// Free route check used by setup and `doctor --verify`. It proves the base
+    /// URL, credential, and model without calling the judging endpoint.
+    pub fn probe(&self) -> Result<u64, ProviderError> {
+        let response = self.post_path("/v1/messages/count_tokens", &self.probe_body())?;
+        response
+            .get("input_tokens")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                ProviderError::Network("count_tokens returned no input_tokens".to_owned())
+            })
+    }
+
     /// Exact input token count for a packet. This is the free count_tokens
     /// endpoint, so it can run before the user confirms spend.
     pub fn count_tokens(&self, packet: &ReviewPacket) -> Result<u64, ProviderError> {
@@ -507,6 +526,17 @@ fn record_verdict_tool() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_body_is_a_minimal_free_count_request() {
+        let provider =
+            AnthropicProvider::new("https://example.test", "k", "claude-opus-4-8", "r", "r1");
+        let body = provider.probe_body();
+        assert_eq!(body["model"], "claude-opus-4-8");
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert!(body.get("tools").is_none());
+        assert!(body.get("max_tokens").is_none());
+    }
 
     #[test]
     fn newer_models_omit_forced_tool_choice() {

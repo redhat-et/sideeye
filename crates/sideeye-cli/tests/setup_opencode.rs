@@ -31,6 +31,7 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
     fs::create_dir_all(&fakebin).expect("fakebin");
     fake_bin(&fakebin, "npm", 0);
     fake_bin(&fakebin, "opencode", 0);
+    fake_bin(&fakebin, "git", 0);
 
     let binary_dir = bin().parent().unwrap().to_path_buf();
     let path = std::env::join_paths([binary_dir, fakebin.clone()])
@@ -117,6 +118,7 @@ fn setup_leaves_config_untouched_when_the_plugin_build_fails() {
     fs::create_dir_all(&fakebin).expect("fakebin");
     fake_bin(&fakebin, "npm", 1);
     fake_bin(&fakebin, "opencode", 0);
+    fake_bin(&fakebin, "git", 0);
 
     let binary_dir = bin().parent().unwrap().to_path_buf();
     let path = std::env::join_paths([binary_dir, fakebin])

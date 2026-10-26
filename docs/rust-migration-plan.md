@@ -1,29 +1,57 @@
-# Rust migration and Python removal plan
+# Rust migration and product plan
 
 ## Goal
 
-Ship **one** command: `sideeye`, implemented in Rust. Python becomes a
-temporary behavioral oracle and is then deleted.
+Ship **one** command: `sideeye`, implemented in Rust. Python is a temporary
+behavioral oracle and is then deleted.
 
-No `sideeye-rs`. No Python runtime in the product path.
+The product is intentionally small:
+
+1. Run `sideeye setup` once.
+2. Open a coding session.
+3. Run `/sideeye` in OpenCode.
+4. Choose **Last exchange** or **Whole session**.
+5. Add optional extra instructions on top of the rubric.
+6. Confirm the free estimate; the judge's verdict is shown verbatim.
+
+No `sideeye-rs`. No MCP. No Python runtime in the product path. No Windows
+support in the current product; see issue #32.
+
+## Current decisions
+
+- One user-facing command in OpenCode: `/sideeye`. The server-side
+  `sideeye-review` command and the TUI alias were removed in 0.6.4.
+- `/sideeye` with no arguments opens a scope picker. Slash shortcuts remain:
+  `/sideeye last [text]`, `/sideeye all [text]`, and `--confirm` to submit.
+- "Last exchange" is the last real user request plus the assistant work that
+  followed it. Side-Eye's own output is excluded.
+- Setup is a guided wizard in a terminal: it asks only for missing values,
+  installs the detected harness plugin, and verifies the route with a free
+  `count_tokens` call. `--yes` supports automation; `--help` has examples.
+- Provider-neutral judging is the next engine milestone: Anthropic-compatible,
+  OpenAI-compatible, gateway, and local providers behind one contract.
+- The judge-success metrics milestone starts local-only: labels, precision,
+  catch rate, false-positive rate, and `sideeye stats`. No upload yet.
+- Windows is explicitly out of scope for now (issue #32).
 
 ## Why Python is still here
 
-The Rust engine covers the OpenCode path, but several shipped surfaces still
-depend on Python:
+The Rust engine covers the OpenCode path end to end, but these shipped surfaces
+still depend on Python:
 
 | Surface | Python dependency | Rust status |
 |---|---|---|
-| `sideeye setup` | config, JSONC, plugin install/build | not ported |
+| `sideeye setup` | config, JSONC, plugin install/build | ported (0.6.1) |
+| OpenCode review | bridge and fallback | Rust path is the product |
 | Claude Code skill | `sideeye review` / `advise` session discovery | not ported |
 | Codex CLI | rollout discovery + adapter | not ported |
 | `sideeye advise` | recent-exchange scoping | not ported |
-| `sideeye route` | route chain + guards | ported to `sideeye-rs doctor` |
-| OpenCode review | bridge and fallback | Rust path available |
+| provider neutrality | OpenAI-compatible/local routes | not ported |
 | sampler / cost report / calibration | research streams | not ported |
-| Judge + verdict schema | Anthropic-specific | Rust contracts + provider |
+| judge-success metrics | labels and local stats | not started |
 
-Deleting Python today would break setup, Claude Code, Codex, and advise.
+Deleting Python today would break Claude Code, Codex, advise, and the research
+streams.
 
 ## Naming
 
@@ -50,8 +78,6 @@ After the gates below:
 Gate: `sideeye --version` resolves to Rust; `sideeye-py` remains the explicit
 legacy command; OpenCode setup selects the right one.
 
-`sideeye-py setup` remains only as a fallback for older installations.
-
 ### Phase 1 — Rust setup (complete in 0.6.1)
 
 - [x] Side-Eye config path and atomic mode-600 write;
@@ -62,66 +88,80 @@ legacy command; OpenCode setup selects the right one.
 - [x] OpenCode profile discovery, including the EnMaaS wrapper;
 - [x] JSON/JSONC update without dropping comments;
 - [x] embed/copy the OpenCode plugin and run `npm ci` + `npm run build`;
-- [x] write plugin options: `engine`, `rust`, `repo`;
+- [x] write plugin options: `engine`, `rust`, `repo`, `model`, `maxTokens`;
 - [x] `sideeye setup` is the complete setup path;
 - [x] explicit `--repo` for multi-repository workspaces.
 
 Gate: isolated tests cover secure config, JSONC preservation, plugin install,
-plugin options, and noninteractive failure. `sideeye setup` was run on a real
-profile and produced the expected OpenCode configuration.
+plugin options, free route verification, and noninteractive failure.
 
 ### Phase 2 — OpenCode completion (current)
 
-Finish the OpenCode product path before touching Claude Code or Codex.
-
-- [x] Native `/sideeye` and `/sideeye-review`.
+- [x] Native `/sideeye` command only; server command and duplicate alias removed.
+- [x] Estimate then confirm.
+- [x] Interactive scope picker: last exchange or whole session.
+- [x] Slash shortcuts: `/sideeye last`, `/sideeye all`, optional instructions.
 - [x] Rust engine selected by setup.
-- [x] Estimate then confirm, with free-text focus.
 - [x] Diff base, redaction, budgeting, context guard, self-grading guard.
 - [x] Plugin install and JSONC/profile detection.
-- [x] Raw verdict inserted without paraphrase.
-- [x] Show packet scope in the estimate: turns, diff artifact, complete/partial.
-- [x] Show the judge model in the estimate and configure it from setup.
-- [x] Emit a manifest artifact for the reviewed files.
-- [x] Persist the raw verdict record outside the model context.
-- [x] Enforce a hard timeout on the plugin's engine/judge call.
-- [ ] Isolated OpenCode smoke test with a fake judge (no network).
-- [ ] Manual acceptance test by the maintainer: estimate, confirm, verdict,
-      error paths, focus text, multi-repo selection.
+- [x] Raw verdict inserted without paraphrase and persisted outside context.
+- [x] Show packet scope and judge model in the estimate.
+- [x] Manifest artifact for reviewed files.
+- [x] Hard timeout on the plugin's engine/judge call.
+- [x] Guided setup wizard and free `count_tokens` verification.
+- [x] `sideeye --help`, `sideeye setup --help`, and `sideeye doctor --help`
+      with examples.
+- [x] Manual fake-judge emulation with the installed plugin and installed Rust
+      binary: estimate, confirm, verdict, and JSONL persistence.
+- [x] Hermetic OpenCode picker + fake-engine test in CI: scope, instructions,
+      confirmation, packet arguments, and verdict insertion without network.
+- [ ] Manual acceptance test by the maintainer in the real OpenCode TUI:
+      picker, last exchange, whole session, instructions, confirm, verdict,
+      error paths, multi-repo.
 
 Gate: the maintainer runs the OpenCode flow end to end and confirms that
-nothing is missing. Claude Code and Codex work does not start until this gate
-passes.
+nothing is missing.
 
-### Phase 3 — Claude Code and Codex capture parity
+### Phase 3 — provider-neutral judging (item 11)
 
-- Claude Code transcript adapter;
-- Codex rollout adapter;
-- current-session resolution (including `CLAUDE_CODE_SESSION_ID`);
-- code artifact parity (manifests, partial views, generated files).
+- OpenAI-compatible Chat Completions provider;
+- local provider support through the same OpenAI-compatible boundary
+  (Ollama, LM Studio, vLLM, gateways);
+- provider selection in config, CLI, and setup;
+- provider-specific estimate behavior (count_tokens when available, labeled
+  heuristic otherwise, local = zero direct cost);
+- same verdict contract, redaction, guards, and provenance across providers;
+- provider conformance fixtures and tests.
 
-Gate: golden fixtures from the Python adapters parse identically in Rust.
+Gate: the same packet can be judged through Anthropic and an OpenAI-compatible
+local/gateway route with the same validated verdict contract.
 
-### Phase 4 — Rust CLI surfaces
+### Phase 4 — Rust session review, advise, Claude Code, and Codex (items 12–13)
 
-- `sideeye review` session mode (not just packet mode);
-- `sideeye advise`;
-- `sideeye route`;
-- cost reporting used by the product;
-- decide whether sampler/calibration stay as research tools or retire.
+- generic session packet capture for Claude Code JSONL and Codex rollouts;
+- current-session resolution, including `CLAUDE_CODE_SESSION_ID`;
+- code artifact parity (manifests, partial views, generated files);
+- `sideeye review --current` and `sideeye advise --current`;
+- native Claude Code skill/command wired to the Rust binary;
+- native Codex integration wired to the Rust binary;
+- remove Python from all harness paths.
 
-Gate: Claude Code, Codex, and OpenCode can run without Python.
+Gate: Claude Code, Codex, and OpenCode run without Python; golden fixtures from
+the Python adapters parse identically in Rust.
 
-### Phase 5 — conformance and cutover
+### Phase 5 — conformance, metrics, and cutover (item 14)
 
 - Run Python and Rust against the same fixtures and real sessions.
 - Cross-harness CI with isolated HOME/config/repo per harness.
 - Compare verdict semantic fields, evidence, provenance, and cost.
-- Keep a one-release fallback to `sideeye-py`.
+- Local judge-success ledger: confirmed / false-positive / neutral labels.
+- `sideeye stats`: precision, catch rate, false-positive rate, cost per
+  confirmed finding, coverage.
+- Keep the local ledger privacy-preserving: no prompts, code, paths, or keys.
+- Opt-in aggregate upload remains a later decision and is not implemented yet.
 
-Gate: Rust tests cover at least the same behaviors as Python; all golden
-fixtures pass; all three harnesses pass end to end; the release artifact
-installs and runs.
+Gate: Rust tests cover the same behaviors as Python; all golden fixtures pass;
+all three harnesses pass end to end; the local metrics ledger and stats work.
 
 ### Phase 6 — delete Python
 
@@ -133,16 +173,16 @@ installs and runs.
 
 ## Test coverage target
 
-Current:
+Current (0.6.4 development):
 
 - Python: 169 tests.
-- Rust: 45 tests.
-- OpenCode plugin: 7 tests.
+- Rust: 50 tests.
+- OpenCode plugin: 10 tests.
 
 The Rust suite must reach behavioral parity, not merely the same count. Track
 coverage by surface:
 
-- capture adapters;
+- capture adapters and scopes;
 - session resolution;
 - packet budget and redaction;
 - providers and guards;
@@ -158,10 +198,16 @@ not delete the oracle before the gate.
 2. Rename binary and Python entrypoint.
 3. Port setup to Rust.
 4. Complete OpenCode and pass the maintainer acceptance gate.
-5. Port Claude Code and Codex capture.
-6. Port advise and session review.
-7. Conformance matrix.
+5. Provider-neutral judging.
+6. Port session review, advise, and Claude Code / Codex capture.
+7. Conformance matrix and local metrics.
 8. Delete Python.
+
+## Out of scope
+
+- Windows support (tracked in #32).
+- MCP transport.
+- Judge-success aggregate upload until the local ledger is proven.
 
 ## Versioning policy
 
