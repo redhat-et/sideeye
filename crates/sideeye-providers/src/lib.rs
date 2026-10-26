@@ -4,6 +4,7 @@
 //! OpenAI-compatible infrastructure, a gateway, or a local model. Providers
 //! implement [`JudgeProvider`] and return the same validated [`Verdict`].
 
+use serde::Serialize;
 use sideeye_core::{ContractError, ReviewPacket, Verdict};
 use thiserror::Error;
 
@@ -12,6 +13,22 @@ mod openai;
 
 pub use anthropic::{AnthropicProvider, Estimate};
 pub use openai::OpenAiProvider;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Advice {
+    pub text: String,
+    pub provider: String,
+    pub model: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cost_usd: Option<f64>,
+}
+
+/// Free-form second opinion on recent work. Unlike `JudgeProvider`, this does
+/// not produce a structured verdict.
+pub trait JudgeAdvisor {
+    fn advise(&self, question: &str, context: &str) -> Result<Advice, ProviderError>;
+}
 
 pub trait JudgeProvider {
     fn provider_name(&self) -> &str;

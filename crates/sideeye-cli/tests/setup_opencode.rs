@@ -42,6 +42,7 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
 
     let output = Command::new(bin())
         .env("SIDEEYE_CONFIG", &config)
+        .env("HOME", dir.path().join("home"))
         .env("SIDEEYE_JUDGE_API_KEY", "test-key")
         .env("SIDEEYE_DATA_DIR", &data)
         .env("OPENCODE_CONFIG", &opencode)
@@ -84,7 +85,7 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
     );
     assert_eq!(plugin["options"]["engine"], "rust");
     assert_eq!(plugin["options"]["repo"], env!("CARGO_MANIFEST_DIR"));
-    assert_eq!(plugin["options"]["command"][0], "sideeye-py");
+    assert!(plugin["options"].get("command").is_none());
     assert_eq!(plugin["options"]["model"], "claude-opus-5-5");
     assert_eq!(plugin["options"]["maxTokens"], 4096);
     assert_eq!(plugin["options"]["provider"], "anthropic");
@@ -129,6 +130,7 @@ fn setup_leaves_config_untouched_when_the_plugin_build_fails() {
 
     let output = Command::new(bin())
         .env("SIDEEYE_CONFIG", &config)
+        .env("HOME", dir.path().join("home"))
         .env("SIDEEYE_JUDGE_API_KEY", "test-key")
         .env("SIDEEYE_DATA_DIR", dir.path().join("data"))
         .env("OPENCODE_CONFIG", &opencode)
@@ -140,4 +142,53 @@ fn setup_leaves_config_untouched_when_the_plugin_build_fails() {
 
     assert!(!output.status.success());
     assert_eq!(fs::read_to_string(&opencode).expect("opencode"), original);
+}
+
+#[test]
+#[cfg(unix)]
+fn setup_installs_claude_and_codex_skills_in_the_user_home() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = dir.path().join("sideeye.json");
+    let home = dir.path().join("home");
+    let fakebin = dir.path().join("bin");
+    fs::create_dir_all(&fakebin).expect("fakebin");
+    fake_bin(&fakebin, "claude", 0);
+    fake_bin(&fakebin, "codex", 0);
+
+    let binary_dir = bin().parent().unwrap().to_path_buf();
+    let path = std::env::join_paths([binary_dir, fakebin])
+        .expect("join paths")
+        .to_string_lossy()
+        .into_owned();
+    let output = Command::new(bin())
+        .env("SIDEEYE_CONFIG", &config)
+        .env("HOME", &home)
+        .env("SIDEEYE_JUDGE_API_KEY", "test-key")
+        .env("PATH", &path)
+        .env_remove("SIDEEYE_JUDGE_BASE_URL")
+        .env_remove("ANTHROPIC_BASE_URL")
+        .args([
+            "setup",
+            "--judge-base-url",
+            "https://judge.example",
+            "--no-opencode",
+            "--yes",
+        ])
+        .output()
+        .expect("run setup");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let claude =
+        fs::read_to_string(home.join(".claude/skills/sideeye/SKILL.md")).expect("claude skill");
+    assert!(claude.contains("sideeye session --client claude"));
+    let codex =
+        fs::read_to_string(home.join(".agents/skills/sideeye/SKILL.md")).expect("codex skill");
+    assert!(codex.contains("sideeye session --client codex"));
+    assert!(
+        home.join(".agents/skills/sideeye/agents/openai.yaml")
+            .is_file()
+    );
 }

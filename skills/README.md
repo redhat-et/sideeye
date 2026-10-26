@@ -1,49 +1,37 @@
-# Side-Eye skill (Claude Code plugin source)
+# Harness skills
 
-The canonical skill definition, shipped as part of the `sideeye` Claude Code
-plugin. Install it with the plugin — no file copying:
+Side-Eye ships native skills for Claude Code and Codex. They call the Rust
+`sideeye` binary; no Python path is used.
 
-```
+## Claude Code
+
+`sideeye setup` installs `~/.claude/skills/sideeye/SKILL.md`, invoked as
+`/sideeye`.
+
+The Claude Code plugin marketplace also ships `/sideeye:ask` from
+`skills/ask/SKILL.md`:
+
+```text
 /plugin marketplace add redhat-et/sideeye
 /plugin install sideeye@sideeye
 ```
 
-It appears as **`/sideeye:ask`** (personal-scope `cp -r` installs of the old
-`escalate-*` skills are the pre-plugin flow — delete them; a duplicate command
-shadows the plugin one).
+Both skills have the same modes and present the judge's stdout verbatim.
 
-For plugin development, install the marketplace from a local checkout:
+## Codex
 
-```
-/plugin marketplace add /path/to/sideeye/checkout
-```
+`sideeye setup` installs `~/.agents/skills/sideeye/SKILL.md` plus
+`agents/openai.yaml` with implicit invocation disabled. Invoke it with
+`/skills sideeye` or `$sideeye`.
 
-## What it does
+## Modes
 
-One router command; the first matching rule wins:
+| User intent | Command |
+|---|---|
+| free setup check | `sideeye doctor --verify` |
+| full session review | `sideeye session --client claude\|codex --current` |
+| recent second opinion | `sideeye advise --client claude\|codex --current --question "..."` |
+| more history | add `--turns N` to advise |
+| narrative only | add `--no-code` |
 
-| You type | What runs | Cost |
-|---|---|---|
-| `/sideeye:ask` or `--help` | prints usage | $0 |
-| `/sideeye:ask --validate` | `sideeye-py route` — route resolution + guards | $0 |
-| `/sideeye:ask --all [flags]` | `sideeye-py review --current --yes` — full sighted review (transcript + `git diff`) | median ~$0.75 |
-| `/sideeye:ask [–turn N] <text> [flags]` | `sideeye-py advise --current --yes --question "<text>"` — scoped opinion on recent work | ~$0.02–$1 |
-
-Pass-through flags: `--model fable|opus|sonnet|haiku`, `--no-code`, `--max-cost N`.
-The authoritative lists are `sideeye-py review --help` / `sideeye-py advise --help`.
-
-The skill is **user-invoked only** (`disable-model-invocation: true`) because it
-spends real money, and it **presents the tool output verbatim and never lets the
-model improvise a verdict** — a review invented by the cheap model is the exact
-failure Side-Eye exists to prevent.
-
-## Requirements at runtime
-- The `sideeye` engine. The skill self-installs it on first use (one-time ~30s,
-  needs `uv` or `pipx` on PATH); or pre-install: `uv tool install
-  git+https://github.com/redhat-et/sideeye`.
-- A usable judge route — see "Configure the judge route" in the root
-  [README](../README.md) (env vars, `~/.config/sideeye/config.json`, or ambient
-  ANTHROPIC_* with an Anthropic host). The skill's shell environment is the
-  session's own, so in a cheap-model session the route must be explicit or the
-  guard blocks the review — `/sideeye:ask --validate` (free) shows exactly what
-  resolves and why.
+The skill must present stdout verbatim and never invent a verdict or advice.

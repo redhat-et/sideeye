@@ -6,9 +6,15 @@
 //! reasoning, system messages, compaction summaries, and synthetic messages are
 //! excluded so Side-Eye cannot review its own injected verdict.
 
+pub mod claude_code;
+pub mod codex;
 pub mod git_diff;
+pub mod sessions;
 
-pub use git_diff::{MAX_DIFF_CHARS, collect_diff_artifacts};
+pub use claude_code::parse_claude_session;
+pub use codex::parse_codex_rollout;
+pub use git_diff::{MAX_DIFF_CHARS, collect_diff_artifacts, collect_diff_artifacts_all};
+pub use sessions::{SessionRequest, parse_session_file, resolve_session};
 
 use serde_json::Value;
 use sideeye_core::{
@@ -24,6 +30,53 @@ pub enum CaptureError {
     Contract(#[from] ContractError),
     #[error("session has no user request")]
     NoTask,
+    #[error("cannot read session: {0}")]
+    Io(String),
+}
+
+/// A normalized session before code evidence is attached.
+#[derive(Debug, Clone)]
+pub struct CapturedSession {
+    pub session_id: String,
+    pub source: String,
+    pub client: String,
+    pub generator_model: Option<String>,
+    pub turns: Vec<Turn>,
+    pub generator_models: Vec<String>,
+    pub generation_usage: Option<GenerationUsage>,
+    pub touched_files: Vec<TouchedFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TouchedFile {
+    pub path: String,
+    pub count: u32,
+}
+
+impl CapturedSession {
+    pub fn into_packet(self, artifacts: Vec<Artifact>) -> Result<ReviewPacket, CaptureError> {
+        let task = self
+            .turns
+            .iter()
+            .find(|turn| turn.role == Role::User && !turn.text.trim().is_empty())
+            .map(|turn| turn.text.trim().to_owned())
+            .ok_or(CaptureError::NoTask)?;
+        let packet = ReviewPacket {
+            schema_version: REVIEW_PACKET_SCHEMA.to_owned(),
+            packet_id: format!("{}-{}", self.source, self.session_id),
+            session_id: self.session_id,
+            source: self.source,
+            client: self.client,
+            generator_model: self.generator_model,
+            task,
+            turns: self.turns,
+            artifacts,
+            generation_usage: self.generation_usage,
+            generator_models: self.generator_models,
+        };
+        packet.validate()?;
+        Ok(packet)
+    }
 }
 
 /// Which part of the session the judge should see.

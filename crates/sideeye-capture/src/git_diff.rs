@@ -15,6 +15,43 @@ use crate::CaptureError;
 /// incomplete so the judge knows its view is partial.
 pub const MAX_DIFF_CHARS: usize = 200_000;
 
+/// Collect evidence for a session that did not report touched files (for
+/// example a Codex rollout). Discovers changed and untracked paths first.
+pub fn collect_diff_artifacts_all(
+    repo: &Path,
+    diff_base: &str,
+) -> Result<Vec<Artifact>, CaptureError> {
+    let mut touched = Vec::new();
+    for args in [
+        vec![
+            "-C",
+            repo.to_str().unwrap_or("."),
+            "diff",
+            "--name-only",
+            diff_base,
+        ],
+        vec![
+            "-C",
+            repo.to_str().unwrap_or("."),
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+        ],
+    ] {
+        let output = run_git(&args)?;
+        touched.extend(
+            output
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned),
+        );
+    }
+    touched.sort();
+    touched.dedup();
+    collect_diff_artifacts(repo, diff_base, &touched)
+}
+
 pub fn collect_diff_artifacts(
     repo: &Path,
     diff_base: &str,

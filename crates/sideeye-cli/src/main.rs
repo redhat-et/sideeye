@@ -13,8 +13,9 @@ mod setup_ext;
 use clap::{Parser, Subcommand};
 use dialoguer::{Confirm, Input, Select};
 use serde_json::Value;
+use sideeye_capture::SessionRequest;
 use sideeye_core::ReviewPacket;
-use sideeye_providers::{FakeJudgeProvider, JudgeProvider};
+use sideeye_providers::{FakeJudgeProvider, JudgeAdvisor, JudgeProvider};
 
 const AMBIENT_BASE_DEFAULT: &str = "https://api.anthropic.com";
 
@@ -67,6 +68,9 @@ enum Command {
         /// Do not configure the OpenCode plugin.
         #[arg(long)]
         no_opencode: bool,
+        /// Do not install the Claude Code or Codex skill.
+        #[arg(long)]
+        no_skills: bool,
         /// Git repository root the OpenCode session should review.
         #[arg(long)]
         repo: Option<PathBuf>,
@@ -117,6 +121,131 @@ enum Command {
         /// Review scope: `session` for all context, `last-exchange` for the last request.
         #[arg(long, default_value = "session")]
         scope: String,
+    },
+    /// Review the current Claude Code or Codex session.
+    Session {
+        /// Harness: `claude` or `codex`.
+        #[arg(long, default_value = "claude")]
+        client: String,
+        /// Explicit transcript/rollout path.
+        #[arg(long)]
+        rollout: Option<PathBuf>,
+        /// Prefer the current harness session.
+        #[arg(long)]
+        current: bool,
+        /// Search every project instead of the current project and ancestors.
+        #[arg(long)]
+        all_projects: bool,
+        /// Specific Claude project directory or Codex path.
+        #[arg(long)]
+        project: Option<String>,
+        /// Skip the git diff and review narrative only.
+        #[arg(long)]
+        no_code: bool,
+        /// Print the free estimate instead of judging.
+        #[arg(long)]
+        estimate_only: bool,
+        /// Provider override; defaults to the saved config.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Judge base URL override.
+        #[arg(long)]
+        base_url: Option<String>,
+        /// Judge model override; defaults to the saved config.
+        #[arg(long)]
+        model: Option<String>,
+        /// Output token ceiling override.
+        #[arg(long)]
+        max_tokens: Option<u32>,
+        /// Extra focus for the judge.
+        #[arg(long)]
+        instructions: Option<String>,
+        /// Git repository root for the diff (default: current checkout).
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// Git diff base (default: merge-base with origin/main, main, or master).
+        #[arg(long)]
+        diff_base: Option<String>,
+        /// Append the raw verdict record to this JSONL file.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Ask for a free-form second opinion on recent Claude Code or Codex work.
+    Advise {
+        /// Harness: `claude` or `codex`.
+        #[arg(long, default_value = "claude")]
+        client: String,
+        /// Explicit transcript/rollout path.
+        #[arg(long)]
+        rollout: Option<PathBuf>,
+        /// Prefer the current harness session.
+        #[arg(long)]
+        current: bool,
+        /// Search every project instead of the current project and ancestors.
+        #[arg(long)]
+        all_projects: bool,
+        /// Specific Claude project directory or Codex path.
+        #[arg(long)]
+        project: Option<String>,
+        /// Number of recent user/assistant exchanges to include.
+        #[arg(long, default_value_t = 1)]
+        turns: usize,
+        /// Skip the git diff.
+        #[arg(long)]
+        no_code: bool,
+        /// The judgement call you want an opinion on.
+        #[arg(long, default_value = "")]
+        question: String,
+        /// Provider override; defaults to the saved config.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Judge base URL override.
+        #[arg(long)]
+        base_url: Option<String>,
+        /// Judge model override; defaults to the saved config.
+        #[arg(long)]
+        model: Option<String>,
+        /// Output token ceiling override.
+        #[arg(long)]
+        max_tokens: Option<u32>,
+        /// Git repository root for the diff (default: current checkout).
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// Git diff base.
+        #[arg(long)]
+        diff_base: Option<String>,
+        /// Append the advice record to this JSONL file.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print one JSON record instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Label a stored verdict for local judge-success metrics.
+    Label {
+        /// Label: `confirmed`, `false-positive`, or `neutral`.
+        label: String,
+        /// Record id to label; defaults to the newest verdict in the ledger.
+        #[arg(long)]
+        id: Option<String>,
+        /// Verdict ledger to read.
+        #[arg(long)]
+        ledger: Option<PathBuf>,
+        /// Label ledger to append to.
+        #[arg(long)]
+        labels: Option<PathBuf>,
+    },
+    /// Show local judge-success metrics.
+    Stats {
+        /// Verdict ledger to read.
+        #[arg(long)]
+        ledger: Option<PathBuf>,
+        /// Label ledger to read.
+        #[arg(long)]
+        labels: Option<PathBuf>,
+        /// Print one JSON object.
+        #[arg(long)]
+        json: bool,
     },
     /// Estimate input tokens and cost without calling the judge.
     Estimate {
@@ -194,6 +323,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             judge_base_url,
             judge_api_key,
             no_opencode,
+            no_skills,
             repo,
             provider,
             model,
@@ -205,6 +335,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             judge_base_url,
             judge_api_key,
             no_opencode,
+            no_skills,
             repo,
             provider,
             model,
@@ -231,6 +362,85 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             max_packet_chars,
             scope,
         ),
+        Command::Session {
+            client,
+            rollout,
+            current,
+            all_projects,
+            project,
+            no_code,
+            estimate_only,
+            provider,
+            base_url,
+            model,
+            max_tokens,
+            instructions,
+            repo,
+            diff_base,
+            out,
+        } => session_review(
+            client,
+            rollout,
+            current,
+            all_projects,
+            project,
+            no_code,
+            estimate_only,
+            provider,
+            base_url,
+            model,
+            max_tokens,
+            instructions,
+            repo,
+            diff_base,
+            out,
+        ),
+        Command::Advise {
+            client,
+            rollout,
+            current,
+            all_projects,
+            project,
+            turns,
+            no_code,
+            question,
+            provider,
+            base_url,
+            model,
+            max_tokens,
+            repo,
+            diff_base,
+            out,
+            json,
+        } => advise_command(
+            client,
+            rollout,
+            current,
+            all_projects,
+            project,
+            turns,
+            no_code,
+            question,
+            provider,
+            base_url,
+            model,
+            max_tokens,
+            repo,
+            diff_base,
+            out,
+            json,
+        ),
+        Command::Label {
+            label,
+            id,
+            ledger,
+            labels,
+        } => label_command(label, id, ledger, labels),
+        Command::Stats {
+            ledger,
+            labels,
+            json,
+        } => stats_command(ledger, labels, json),
         Command::Estimate {
             packet,
             provider,
@@ -270,6 +480,301 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             out,
         ),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn advise_command(
+    client: String,
+    rollout: Option<PathBuf>,
+    current: bool,
+    all_projects: bool,
+    project: Option<String>,
+    turns: usize,
+    no_code: bool,
+    question: String,
+    provider: Option<String>,
+    base_url: Option<String>,
+    model: Option<String>,
+    max_tokens: Option<u32>,
+    repo: Option<PathBuf>,
+    diff_base: Option<String>,
+    out: Option<PathBuf>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = load_judge_config();
+    let provider_name = provider
+        .or(config.provider.clone())
+        .unwrap_or_else(|| "anthropic".to_owned());
+    let model = model
+        .or(config.model.clone())
+        .unwrap_or_else(|| "claude-opus-4-8".to_owned());
+    let max_tokens = max_tokens.or(config.max_tokens).unwrap_or(4096);
+    let request = SessionRequest {
+        client,
+        rollout,
+        current,
+        all_projects,
+        project,
+        home: None,
+        cwd: None,
+    };
+    let session_path = sideeye_capture::resolve_session(&request)?;
+    let captured = sideeye_capture::parse_session_file(&session_path)?;
+    let selected = recent_turns(&captured.turns, turns);
+    let mut context = render_turns(&selected);
+
+    if !no_code && let Some(repo) = repo.or_else(current_git_root) {
+        let base = diff_base.unwrap_or_else(|| default_diff_base(&repo));
+        let touched = captured
+            .touched_files
+            .iter()
+            .filter(|file| context.contains(&file.path))
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>();
+        let artifacts = if touched.is_empty() {
+            sideeye_capture::collect_diff_artifacts_all(&repo, &base)?
+        } else {
+            sideeye_capture::collect_diff_artifacts(&repo, &base, &touched)?
+        };
+        for artifact in artifacts {
+            context.push_str(&format!(
+                "\n\n## {} evidence\n{}",
+                artifact.kind, artifact.content
+            ));
+        }
+    }
+
+    let (base, key, rubric, rubric_version) =
+        provider_material(base_url, None, EMBEDDED_ADVICE_RUBRIC, "rubric_advice_v1")?;
+    let advice = match provider_name.as_str() {
+        "anthropic" => sideeye_providers::AnthropicProvider::new(
+            base,
+            key,
+            model.clone(),
+            rubric,
+            rubric_version,
+        )
+        .with_max_tokens(max_tokens)
+        .advise(&question, &context)?,
+        "openai" | "openai-compatible" => {
+            sideeye_providers::OpenAiProvider::new(base, key, model.clone(), rubric, rubric_version)
+                .with_max_tokens(max_tokens)
+                .advise(&question, &context)?
+        }
+        other => {
+            return Err(format!(
+                "provider {other:?} is not implemented; use anthropic or openai-compatible"
+            )
+            .into());
+        }
+    };
+
+    let record = serde_json::json!({
+        "session_id": captured.session_id,
+        "source": "advice",
+        "question": question,
+        "advice": advice.text,
+        "judge_provider": advice.provider,
+        "judge_model": advice.model,
+        "input_tokens": advice.input_tokens,
+        "output_tokens": advice.output_tokens,
+        "cost_usd": advice.cost_usd,
+    });
+    if let Some(path) = out {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        writeln!(file, "{}", serde_json::to_string(&record)?)?;
+    }
+    if json {
+        println!("{}", serde_json::to_string(&record)?);
+    } else {
+        println!("sideeye · advice");
+        println!("  session: {}", captured.session_id);
+        println!(
+            "  scope:   {}",
+            if turns <= 1 {
+                "last exchange".to_owned()
+            } else {
+                format!("last {turns} exchanges")
+            }
+        );
+        println!(
+            "  judge:   {}",
+            record["judge_model"].as_str().unwrap_or("unknown")
+        );
+        println!();
+        println!("SECOND OPINION");
+        println!("{}", record["advice"].as_str().unwrap_or(""));
+    }
+    Ok(())
+}
+
+fn recent_turns(turns: &[sideeye_core::Turn], count: usize) -> Vec<sideeye_core::Turn> {
+    let user_positions = turns
+        .iter()
+        .enumerate()
+        .filter(|(_, turn)| turn.role == sideeye_core::Role::User)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let start = user_positions
+        .len()
+        .saturating_sub(count.max(1))
+        .min(user_positions.len().saturating_sub(1));
+    let start = user_positions.get(start).copied().unwrap_or(0);
+    turns[start..].to_vec()
+}
+
+fn render_turns(turns: &[sideeye_core::Turn]) -> String {
+    turns
+        .iter()
+        .map(|turn| {
+            let label = match turn.role {
+                sideeye_core::Role::User => "USER",
+                sideeye_core::Role::Assistant => "ASSISTANT",
+                sideeye_core::Role::Tool => "TOOL",
+                sideeye_core::Role::System => "SYSTEM",
+            };
+            format!("{label}:\n{}\n", turn.text.trim())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn session_review(
+    client: String,
+    rollout: Option<PathBuf>,
+    current: bool,
+    all_projects: bool,
+    project: Option<String>,
+    no_code: bool,
+    estimate_only: bool,
+    provider: Option<String>,
+    base_url: Option<String>,
+    model: Option<String>,
+    max_tokens: Option<u32>,
+    instructions: Option<String>,
+    repo: Option<PathBuf>,
+    diff_base: Option<String>,
+    out: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = load_judge_config();
+    let provider_name = provider
+        .or(config.provider.clone())
+        .unwrap_or_else(|| "anthropic".to_owned());
+    let model = model
+        .or(config.model.clone())
+        .unwrap_or_else(|| "claude-opus-4-8".to_owned());
+    let max_tokens = max_tokens.or(config.max_tokens).unwrap_or(4096);
+    let request = SessionRequest {
+        client,
+        rollout,
+        current,
+        all_projects,
+        project,
+        home: None,
+        cwd: None,
+    };
+    let session_path = sideeye_capture::resolve_session(&request)?;
+    let captured = sideeye_capture::parse_session_file(&session_path)?;
+    let touched = captured
+        .touched_files
+        .iter()
+        .map(|file| file.path.clone())
+        .collect::<Vec<_>>();
+
+    let repo = repo.or_else(current_git_root);
+    let artifacts = if no_code {
+        Vec::new()
+    } else if let Some(repo) = &repo {
+        let base = diff_base.unwrap_or_else(|| default_diff_base(repo));
+        if touched.is_empty() {
+            sideeye_capture::collect_diff_artifacts_all(repo, &base)?
+        } else {
+            sideeye_capture::collect_diff_artifacts(repo, &base, &touched)?
+        }
+    } else {
+        Vec::new()
+    };
+    let packet = captured
+        .into_packet(artifacts)?
+        .redacted()
+        .budgeted(400_000);
+    packet.validate()?;
+    guard_self_grading(&packet, &model)?;
+    let judge = build_provider(
+        &provider_name,
+        base_url,
+        model,
+        None,
+        max_tokens,
+        instructions,
+    )?;
+    if estimate_only {
+        println!("{}", serde_json::to_string(&judge.estimate(&packet)?)?);
+        return Ok(());
+    }
+    let verdict = judge.judge(&packet)?;
+    verdict.validate()?;
+    if let Some(path) = out {
+        persist_verdict(&path, &packet, &verdict)?;
+    }
+    println!("{}", serde_json::to_string(&verdict)?);
+    Ok(())
+}
+
+fn default_diff_base(repo: &Path) -> String {
+    for reference in ["origin/main", "main", "master"] {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["merge-base", "HEAD", reference])
+            .output();
+        if let Ok(output) = output
+            && output.status.success()
+        {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if !value.is_empty() {
+                return value;
+            }
+        }
+    }
+    "HEAD".to_owned()
+}
+
+fn persist_verdict(
+    path: &Path,
+    packet: &ReviewPacket,
+    verdict: &sideeye_core::Verdict,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let record = serde_json::json!({
+        "record_id": new_record_id(&packet.packet_id),
+        "session_id": packet.session_id,
+        "source": packet.source,
+        "verdict": verdict,
+    });
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(file, "{}", serde_json::to_string(&record)?)?;
+    Ok(())
+}
+
+fn new_record_id(packet_id: &str) -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{packet_id}-{nanos}")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -314,22 +819,200 @@ fn review(
     };
     verdict.validate()?;
     if let Some(path) = out {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let record = serde_json::json!({
-            "session_id": packet.session_id,
-            "source": packet.source,
-            "verdict": verdict,
-        });
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
-        writeln!(file, "{}", serde_json::to_string(&record)?)?;
+        persist_verdict(&path, &packet, &verdict)?;
     }
     println!("{}", serde_json::to_string(&verdict)?);
     Ok(())
+}
+
+fn label_command(
+    label: String,
+    id: Option<String>,
+    ledger: Option<PathBuf>,
+    labels: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let label = normalize_label(&label)?;
+    let ledger = ledger.unwrap_or_else(default_verdict_ledger);
+    let records = read_jsonl(&ledger)?;
+    let record = match id {
+        Some(id) => records
+            .iter()
+            .find(|record| record.get("record_id").and_then(Value::as_str) == Some(id.as_str()))
+            .ok_or_else(|| format!("no verdict with record_id {id:?} in {}", ledger.display()))?,
+        None => records
+            .last()
+            .ok_or_else(|| format!("verdict ledger is empty: {}", ledger.display()))?,
+    };
+    let record_id = record
+        .get("record_id")
+        .and_then(Value::as_str)
+        .ok_or("this verdict has no record_id; rerun the review with 0.6.7 or newer")?;
+    let labels = labels.unwrap_or_else(default_labels_ledger);
+    if let Some(parent) = labels.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let entry = serde_json::json!({
+        "record_id": record_id,
+        "label": label,
+        "at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    });
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&labels)?;
+    writeln!(file, "{}", serde_json::to_string(&entry)?)?;
+    println!("labeled {record_id} as {label}");
+    Ok(())
+}
+
+fn stats_command(
+    ledger: Option<PathBuf>,
+    labels: Option<PathBuf>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ledger = ledger.unwrap_or_else(default_verdict_ledger);
+    let labels = labels.unwrap_or_else(default_labels_ledger);
+    let records = read_jsonl(&ledger)?;
+    let mut latest: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for entry in read_jsonl(&labels)? {
+        if let (Some(id), Some(label)) = (
+            entry.get("record_id").and_then(Value::as_str),
+            entry.get("label").and_then(Value::as_str),
+        ) {
+            latest.insert(id.to_owned(), label.to_owned());
+        }
+    }
+
+    let total = records.len();
+    let mut confirmed = 0_u64;
+    let mut false_positive = 0_u64;
+    let mut neutral = 0_u64;
+    let mut labeled = 0_u64;
+    let mut cost = 0.0_f64;
+    for record in &records {
+        if let Some(value) = record
+            .get("verdict")
+            .and_then(|verdict| verdict.get("cost_usd"))
+            .and_then(Value::as_f64)
+        {
+            cost += value;
+        }
+        let Some(id) = record.get("record_id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(label) = latest.get(id) else {
+            continue;
+        };
+        labeled += 1;
+        match label.as_str() {
+            "confirmed" => confirmed += 1,
+            "false-positive" => false_positive += 1,
+            "neutral" => neutral += 1,
+            _ => {}
+        }
+    }
+    let precision = (confirmed + false_positive > 0)
+        .then(|| confirmed as f64 / (confirmed + false_positive) as f64);
+    let false_positive_rate = (labeled > 0).then(|| false_positive as f64 / labeled as f64);
+    let coverage = (total > 0).then(|| labeled as f64 / total as f64);
+    let cost_per_confirmed = (confirmed > 0).then(|| cost / confirmed as f64);
+    let report = serde_json::json!({
+        "ledger": ledger,
+        "total_verdicts": total,
+        "labeled": labeled,
+        "coverage": coverage,
+        "confirmed": confirmed,
+        "false_positive": false_positive,
+        "neutral": neutral,
+        "precision": precision,
+        "false_positive_rate": false_positive_rate,
+        "total_cost_usd": (cost * 1_000_000.0).round() / 1_000_000.0,
+        "cost_per_confirmed_usd": cost_per_confirmed.map(|value| (value * 1_000_000.0).round() / 1_000_000.0),
+        "catch_rate": Value::Null,
+        "catch_rate_note": "requires a labeled defect benchmark",
+    });
+    if json {
+        println!("{}", serde_json::to_string(&report)?);
+    } else {
+        println!("sideeye stats");
+        println!("  ledger:             {}", ledger.display());
+        println!("  verdicts:           {total}");
+        println!("  labeled:            {labeled}");
+        println!(
+            "  coverage:           {}",
+            coverage
+                .map(|value| format!("{:.0}%", value * 100.0))
+                .unwrap_or_else(|| "n/a".to_owned())
+        );
+        println!("  confirmed:          {confirmed}");
+        println!("  false positive:     {false_positive}");
+        println!("  neutral:            {neutral}");
+        println!(
+            "  precision:          {}",
+            precision
+                .map(|value| format!("{:.2}", value))
+                .unwrap_or_else(|| "n/a".to_owned())
+        );
+        println!(
+            "  false-positive rate:{}",
+            false_positive_rate
+                .map(|value| format!(" {:.0}%", value * 100.0))
+                .unwrap_or_else(|| "n/a".to_owned())
+        );
+        println!("  total cost:         ${cost:.4}");
+        println!(
+            "  cost / confirmed:   {}",
+            cost_per_confirmed
+                .map(|value| format!("${value:.4}"))
+                .unwrap_or_else(|| "n/a".to_owned())
+        );
+        println!("  catch rate:         n/a (needs a labeled defect benchmark)");
+    }
+    Ok(())
+}
+
+fn normalize_label(value: &str) -> Result<&'static str, Box<dyn std::error::Error>> {
+    match value.trim().to_lowercase().as_str() {
+        "confirmed" | "confirm" | "true-positive" | "true_positive" | "tp" => Ok("confirmed"),
+        "false-positive" | "false_positive" | "fp" => Ok("false-positive"),
+        "neutral" | "unsure" => Ok("neutral"),
+        other => Err(
+            format!("unknown label {other:?}; use confirmed, false-positive, or neutral").into(),
+        ),
+    }
+}
+
+fn read_jsonl(path: &Path) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+    let Ok(text) = fs::read_to_string(path) else {
+        return Ok(Vec::new());
+    };
+    Ok(text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+        .collect())
+}
+
+fn default_verdict_ledger() -> PathBuf {
+    if let Ok(path) = env::var("SIDEEYE_VERDICTS") {
+        return PathBuf::from(path);
+    }
+    state_home().join("opencode-verdicts.jsonl")
+}
+
+fn default_labels_ledger() -> PathBuf {
+    if let Ok(path) = env::var("SIDEEYE_LABELS") {
+        return PathBuf::from(path);
+    }
+    state_home().join("labels.jsonl")
+}
+
+fn state_home() -> PathBuf {
+    env::var("HOME")
+        .map(|home| PathBuf::from(home).join(".local/share/sideeye"))
+        .unwrap_or_else(|_| PathBuf::from(".").join("sideeye"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -359,6 +1042,7 @@ fn estimate(
 }
 
 const EMBEDDED_RUBRIC: &str = include_str!("../../../rubric/rubric_session_v2.md");
+const EMBEDDED_ADVICE_RUBRIC: &str = include_str!("../../../rubric/rubric_advice_v1.md");
 
 fn build_provider(
     provider_name: &str,
@@ -368,28 +1052,8 @@ fn build_provider(
     max_tokens: u32,
     instructions: Option<String>,
 ) -> Result<Box<dyn JudgeProvider>, Box<dyn std::error::Error>> {
-    let config = load_judge_config();
-    let mut route = resolve_judge_route(&config);
-    if base_url.is_some() {
-        route.base = base_url;
-        route.source = Some("flag");
-    }
-    validate_route(&route)?;
-    let base = route.base.ok_or("no judge base URL configured")?;
-    let key = route.key.ok_or("no judge credential configured")?;
-    let (rubric_text, rubric_version) = match rubric {
-        Some(path) => {
-            let text = fs::read_to_string(path)
-                .map_err(|error| format!("cannot read rubric {}: {error}", path.display()))?;
-            let version = path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or("unknown")
-                .to_owned();
-            (text, version)
-        }
-        None => (EMBEDDED_RUBRIC.to_owned(), "rubric_session_v2".to_owned()),
-    };
+    let (base, key, rubric_text, rubric_version) =
+        provider_material(base_url, rubric, EMBEDDED_RUBRIC, "rubric_session_v2")?;
     let instructions = instructions.unwrap_or_default();
     match provider_name {
         "anthropic" => Ok(Box::new(
@@ -413,6 +1077,37 @@ fn build_provider(
         )
         .into()),
     }
+}
+
+fn provider_material(
+    base_url: Option<String>,
+    rubric: Option<&PathBuf>,
+    default_rubric: &str,
+    default_version: &str,
+) -> Result<(String, String, String, String), Box<dyn std::error::Error>> {
+    let config = load_judge_config();
+    let mut route = resolve_judge_route(&config);
+    if base_url.is_some() {
+        route.base = base_url;
+        route.source = Some("flag");
+    }
+    validate_route(&route)?;
+    let base = route.base.ok_or("no judge base URL configured")?;
+    let key = route.key.ok_or("no judge credential configured")?;
+    let (rubric_text, rubric_version) = match rubric {
+        Some(path) => {
+            let text = fs::read_to_string(path)
+                .map_err(|error| format!("cannot read rubric {}: {error}", path.display()))?;
+            let version = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("unknown")
+                .to_owned();
+            (text, version)
+        }
+        None => (default_rubric.to_owned(), default_version.to_owned()),
+    };
+    Ok((base, key, rubric_text, rubric_version))
 }
 
 /// Refuse a judge that generated any turn in the packet. A model grading its
@@ -521,6 +1216,7 @@ fn setup(
     base_url: Option<String>,
     api_key: Option<String>,
     no_opencode: bool,
+    no_skills: bool,
     repo: Option<PathBuf>,
     provider: String,
     model: String,
@@ -655,13 +1351,20 @@ fn setup(
                 .into(),
         );
     }
+    judge["model"] = serde_json::json!(model);
+    judge["max_tokens"] = serde_json::json!(max_tokens);
 
     let harnesses = detect_harnesses();
-    let opencode = harnesses
-        .iter()
-        .find(|(name, _)| *name == "OpenCode")
-        .map(|(_, detected)| *detected)
-        .unwrap_or(false);
+    let detected = |name: &str| {
+        harnesses
+            .iter()
+            .find(|(candidate, _)| *candidate == name)
+            .map(|(_, detected)| *detected)
+            .unwrap_or(false)
+    };
+    let opencode = detected("OpenCode");
+    let claude = detected("Claude Code");
+    let codex = detected("Codex");
 
     let mut repo = repo;
     if interactive && opencode {
@@ -718,6 +1421,17 @@ fn setup(
     } else {
         match setup_ext::install_opencode_plugin(repo.as_deref(), &model, max_tokens, provider) {
             Ok(path) => println!("OpenCode plugin: configured ({})", path.display()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    if !no_skills {
+        match setup_ext::install_harness_skills(claude, codex) {
+            Ok(paths) => {
+                for path in paths {
+                    println!("Skill: configured ({})", path.display());
+                }
+            }
             Err(error) => return Err(error.into()),
         }
     }
@@ -895,6 +1609,8 @@ struct JudgeConfig {
     provider: Option<String>,
     base_url: Option<String>,
     api_key: Option<String>,
+    model: Option<String>,
+    max_tokens: Option<u32>,
     trust_ambient_route: bool,
 }
 
@@ -934,6 +1650,14 @@ fn load_judge_config() -> JudgeConfig {
             .get("provider")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        model: judge
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        max_tokens: judge
+            .get("max_tokens")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok()),
         base_url: judge
             .get("base_url")
             .and_then(Value::as_str)
@@ -1100,6 +1824,8 @@ mod tests {
     fn config_precedence_matches_python_oracle() {
         let config = JudgeConfig {
             provider: None,
+            model: None,
+            max_tokens: None,
             base_url: Some("https://config.example".to_owned()),
             api_key: Some("config-key".to_owned()),
             trust_ambient_route: false,

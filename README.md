@@ -9,12 +9,12 @@ grade itself.
 
 - Native commands in **Claude Code** and **OpenCode**
 - A **Codex** CLI adapter today
-- A provider-neutral Rust core, with the Python engine as the behavioral oracle
+- A provider-neutral Rust core, with Python only as a behavioral oracle
 - Estimate first, confirm before spend
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.6
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.7
 
 ---
 
@@ -48,9 +48,9 @@ Setup is a guided flow:
 
 Run `sideeye setup --help` for examples and automation flags.
 
-> **Migration note:** setup and the Rust engine ship as `sideeye`. The Python
-> CLI is `sideeye-py` and remains the session/advise fallback until those ports
-> land. See [`docs/rust-migration-plan.md`](docs/rust-migration-plan.md).
+> **Migration note:** setup and every harness path use the Rust `sideeye`
+> binary. The Python CLI remains only as a behavioral oracle for conformance
+> and research tools. See [`docs/rust-migration-plan.md`](docs/rust-migration-plan.md).
 
 Check the judge route without spending:
 
@@ -126,31 +126,56 @@ paraphrase it.
 
 ### Claude Code
 
+`sideeye setup` installs a personal `/sideeye` skill. The plugin marketplace
+also provides `/sideeye:ask` for users who prefer plugin distribution.
+
 ```text
-/sideeye:ask --validate                     # free route check
-/sideeye:ask is my last change sound?       # scoped second opinion
-/sideeye:ask --all                          # full-session review
+/sideeye --validate                     # free route check
+/sideeye is my last change sound?       # scoped second opinion
+/sideeye --all                          # full-session review
 ```
 
 ### Codex
 
-Codex sessions are supported through the CLI adapter:
+`sideeye setup` installs the `sideeye` skill under `~/.agents/skills/sideeye`.
+Invoke it from Codex with `/skills sideeye` (or `$sideeye`) and use the same
+modes:
 
-```bash
-sideeye-py review --client codex
+```text
+/skills sideeye --validate
+/skills sideeye is this change sound?
+/skills sideeye --all
 ```
-
-A native Codex skill/plugin is tracked work; manual rollout paths are not the
-target UX.
 
 ### CLI
 
 ```bash
 sideeye setup                  # configure credentials and harnesses (Rust)
 sideeye doctor                 # resolved route guard, no spend
-sideeye-py review              # legacy full-session review
-sideeye-py advise              # legacy recent scoped opinion
+sideeye session --client claude --current
+sideeye session --client codex --current
+sideeye advise --client claude --current --question "..."
+sideeye label confirmed        # label the newest stored verdict
+sideeye stats                  # local precision/coverage/cost
 ```
+
+### Judge-success metrics
+
+Labels are local-only and privacy-preserving. The label ledger stores only the
+record id, label, and timestamp:
+
+```bash
+sideeye label confirmed          # newest verdict
+sideeye label false-positive --id <record_id>
+sideeye label neutral --id <record_id>
+sideeye stats
+sideeye stats --json
+```
+
+`stats` reports coverage, confirmed/false-positive/neutral counts, precision,
+false-positive rate, total judge cost, and cost per confirmed finding. Catch
+rate is intentionally unavailable until there is a labeled defect benchmark.
+No prompts, code, paths, or keys are uploaded.
 
 ---
 
@@ -161,9 +186,9 @@ The Rust workspace is the migration target:
 | Crate | Role |
 |---|---|
 | `sideeye-core` | `ReviewPacket`, `Verdict`, validation, redaction, budgeting |
-| `sideeye-capture` | harness adapters, currently OpenCode V2 export and git diff |
-| `sideeye-providers` | `JudgeProvider`, deterministic fake, Anthropic Messages |
-| `sideeye-cli` | `doctor`, `validate`, `packet`, `estimate`, `review` |
+| `sideeye-capture` | OpenCode, Claude Code, and Codex adapters; git diff/manifest |
+| `sideeye-providers` | Anthropic, OpenAI-compatible/local, deterministic fake, advice |
+| `sideeye-cli` | setup, doctor, session, advise, validate, packet, estimate, review |
 
 ```bash
 sideeye doctor
@@ -174,8 +199,9 @@ sideeye estimate packet.json --model claude-opus-4-8
 sideeye review packet.json --provider anthropic --model claude-opus-4-8
 ```
 
-Python remains the fallback and the behavioral oracle until cross-harness
-parity is proven. See [`docs/rust-core.md`](docs/rust-core.md).
+Python remains only as a temporary behavioral oracle for conformance and the
+research sampler/calibration tools. No harness path invokes it. See
+[`docs/rust-core.md`](docs/rust-core.md).
 
 ---
 
@@ -216,7 +242,7 @@ pytest -q
 (cd integrations/opencode && npm ci && npm run typecheck && npm test)
 ```
 
-Current coverage: **169 Python tests**, **58 Rust tests**, **10 OpenCode plugin
+Current coverage: **169 Python tests**, **71 Rust tests**, **10 OpenCode plugin
 tests**.
 
 ---
@@ -225,14 +251,14 @@ tests**.
 
 ```text
 crates/                     Rust core, capture, providers, CLI
-adapters/                   Python Claude Code, Codex, OpenCode adapters
-judge/                      Python judge, schema, transcript
+adapters/                   Python conformance-oracle adapters
+judge/                      Python oracle judge, schema, transcript
 integrations/opencode/      native OpenCode TUI plugin
 rubric/                     grading rubrics
 scripts/                    version, demo, and release checks
 docs/                       demo, architecture, scope, releasing
 configure.py                one-command setup
-escalate.py, advise.py      Python review/advice engines
+escalate.py, advise.py      Python oracle review/advice engines
 ```
 
 ---
