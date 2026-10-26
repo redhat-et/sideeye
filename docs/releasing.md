@@ -7,6 +7,11 @@ Releases produce four artifacts:
 - `sideeye-*.whl` and `sideeye-*.tar.gz` — Python package
 - `redhat-et-sideeye-opencode-*.tgz` — built OpenCode plugin
 
+## Version policy
+
+Stay on the `0.6.x` line. Use patch bumps (`0.6.1`, `0.6.2`, ...) until the
+maintainer explicitly authorizes a minor or major release.
+
 ## Cut a release
 
 1. Ensure `main` is green.

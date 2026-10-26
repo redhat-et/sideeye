@@ -144,6 +144,11 @@ not delete the oracle before the gate.
 6. Conformance matrix.
 7. Delete Python.
 
+## Versioning policy
+
+Stay on the `0.6.x` line. Use patch bumps (`0.6.1`, `0.6.2`, ...) until the
+maintainer explicitly authorizes a minor or major release.
+
 ## Keeping this plan current
 
 Update this file in the same PR as any phase change. The README and demo must
