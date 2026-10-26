@@ -142,8 +142,8 @@ button:focus-visible { outline: 2px solid #1f6feb; outline-offset: 2px; }
   <span class="chip next">OpenAI/local judges: next</span>
 </div>
 <div class="controls">
-  <button id="tabA" class="tab active" type="button">/sideeye — estimate first</button>
-  <button id="tabB" class="tab" type="button">/sideeye --confirm — full review</button>
+  <button id="tabA" class="tab active" type="button">/sideeye last — estimate first</button>
+  <button id="tabB" class="tab" type="button">/sideeye last --confirm — judge</button>
   <button id="tabC" class="tab" type="button">cost — draft + judge vs judge-only</button>
   <span class="divider" aria-hidden="true"></span>
   <button id="replay" class="ghost" type="button">replay</button>
@@ -166,7 +166,7 @@ button:focus-visible { outline: 2px solid #1f6feb; outline-offset: 2px; }
 
 <p class="footer">
   Draft cheap, review expensive. The judge critiques; the drafting model revises. Random benchmark samples, human escalations, and dogfood reviews stay in separate streams.<br>
-  <a href="https://github.com/redhat-et/sideeye">github.com/redhat-et/sideeye</a> · <a href="https://github.com/redhat-et/sideeye/releases/tag/v0.6.3">release v0.6.3</a> · <a href="https://github.com/redhat-et/sideeye/blob/main/docs/rust-core.md">Rust migration</a>
+  <a href="https://github.com/redhat-et/sideeye">github.com/redhat-et/sideeye</a> · <a href="https://github.com/redhat-et/sideeye/releases/tag/v0.6.4">release v0.6.4</a> · <a href="https://github.com/redhat-et/sideeye/blob/main/docs/rust-core.md">Rust migration</a>
 </p>
 
 <script>
@@ -178,13 +178,13 @@ button:focus-visible { outline: 2px solid #1f6feb; outline-offset: 2px; }
   // Line kinds: user, wait, blank, slow, out/dim/hdr/cost.
   var SCENES = {
     A: [
-      { k: 'user', t: '/sideeye security vulnerabilities and missing tests' },
+      { k: 'user', t: '/sideeye last security vulnerabilities and missing tests' },
       { k: 'blank' },
       { k: 'dim', t: 'sideeye · review estimate (no judge call made)' },
       { k: 'mix', html: '<span class="dim">  session: </span><span class="ok">ses_f2bf…3DAX</span><span class="dim">  source: opencode</span>' },
       { k: 'dim', t: '  repo:    /Users/you/code/sideeye' },
-      { k: 'dim', t: '  scope:   799 turns + git diff vs origin/main (partial, 119.9k chars)' },
-      { k: 'dim', t: '  engine:  rust (sideeye v0.6.3)' },
+      { k: 'dim', t: '  scope:   last exchange + git diff vs origin/main (partial, 119.9k chars)' },
+      { k: 'dim', t: '  engine:  rust (sideeye v0.6.4)' },
       { k: 'dim', t: '  request: security vulnerabilities and missing tests' },
       { k: 'dim', t: '  judge:   claude-opus-5-5' },
       { k: 'wait', pre: '  ', live: ' counting tokens (free)…', final: '  ⠋ counting tokens (free)…            → 176,575 input tokens', dur: 1600 },
@@ -194,13 +194,13 @@ button:focus-visible { outline: 2px solid #1f6feb; outline-offset: 2px; }
       { k: 'mix', html: '<span class="dim">  context:        </span><span class="ok">176,575 + 2,048 ≤ 200,000</span><span class="dim">  window OK</span>' },
       { k: 'mix', html: '<span class="dim">  self-grading:   </span><span class="ok">judge did not generate this session</span>' },
       { k: 'blank' },
-      { k: 'dim', t: 'Run /sideeye --confirm security vulnerabilities and missing tests' },
+      { k: 'dim', t: 'Run /sideeye last --confirm security vulnerabilities and missing tests' },
       { k: 'dim', t: 'to submit this packet to the judge.' },
       { k: 'blank' },
       { k: 'dim', t: '· no model call was made — this step is free ·' }
     ],
     B: [
-      { k: 'user', t: '/sideeye --confirm security vulnerabilities and missing tests' },
+      { k: 'user', t: '/sideeye last --confirm security vulnerabilities and missing tests' },
       { k: 'blank' },
       { k: 'dim', t: 'sideeye · review' },
       { k: 'mix', html: '<span class="dim">  source: </span><span class="ok">opencode</span><span class="dim">  engine: </span><span class="ok">rust</span><span class="dim">  judge: claude-opus-5-5</span>' },

@@ -1,5 +1,100 @@
 import type { Context } from "@opencode/plugin/tui/context"
-import { reviewExport } from "./index.js"
+import { reviewExport, type ReviewScope } from "./index.js"
+
+const USAGE = [
+  "Side-Eye review",
+  "",
+  "/sideeye                 choose last exchange or whole session",
+  "/sideeye last [text]     estimate the last request + response",
+  "/sideeye all [text]      estimate the whole session",
+  "/sideeye --confirm       submit the whole session after the estimate",
+  "",
+  "Add --confirm to any scope to submit it. Text after the scope is extra",
+  "reviewer instruction on top of the rubric.",
+].join("\n")
+
+function failed(result: string): boolean {
+  return [
+    "Side-Eye packet build failed",
+    "Side-Eye estimate failed",
+    "Side-Eye review failed",
+    "Side-Eye review could not start",
+    "Side-Eye returned no",
+  ].some((prefix) => result.startsWith(prefix))
+}
+
+async function load(context: Context, sessionID: string) {
+  const session = await context.client.session.get({sessionID})
+  const exported = await context.client.session.export({sessionID, sanitize: true})
+  return {session, exported}
+}
+
+export async function pickAndReview(context: Context, sessionID: string): Promise<void> {
+  const scope = await context.ui.dialog.select<ReviewScope>({
+    title: "Side-Eye review scope",
+    placeholder: "Choose what the judge should review",
+    options: [
+      {
+        title: "Last exchange",
+        value: "last",
+        description: "The last request and the assistant work that followed it.",
+      },
+      {
+        title: "Whole session",
+        value: "all",
+        description: "All visible context in this session.",
+      },
+    ],
+  })
+  if (!scope) return
+
+  const instructions = await context.ui.dialog.prompt({
+    title: "Extra instructions (optional)",
+    description: "Added on top of the rubric. Leave blank to use the rubric only.",
+    placeholder: "e.g. focus on security and missing tests",
+  })
+  if (instructions === undefined) return
+  const command = [scope, instructions.trim()].filter(Boolean).join(" ")
+
+  let session
+  let exported
+  try {
+    ;({session, exported} = await load(context, sessionID))
+  } catch (error) {
+    await context.ui.dialog.alert({
+      title: "Side-Eye",
+      message: `The session could not be loaded: ${error instanceof Error ? error.message : String(error)}`,
+    })
+    return
+  }
+
+  const estimate = await reviewExport(session, exported, context.options, command, false)
+  if (failed(estimate)) {
+    await context.ui.dialog.alert({title: "Side-Eye", message: estimate})
+    return
+  }
+
+  const confirmed = await context.ui.dialog.confirm({
+    title: "Run the Side-Eye judge?",
+    message: `${estimate}\n\nSend this packet to the judge?`,
+    label: {confirm: "Review", cancel: "Cancel"},
+  })
+  if (!confirmed) {
+    context.ui.toast.show({
+      title: "Side-Eye",
+      message: "Review cancelled.",
+      variant: "info",
+    })
+    return
+  }
+
+  const verdict = await reviewExport(session, exported, context.options, `${command} --confirm`)
+  if (failed(verdict)) {
+    await context.ui.dialog.alert({title: "Side-Eye", message: verdict})
+    return
+  }
+  await context.client.session.synthetic({sessionID, text: verdict})
+}
 
 export default {
   id: "sideeye.opencode.tui",
@@ -13,9 +108,10 @@ export default {
             {
               id: "sideeye.review",
               title: "Side-Eye review",
+              description: "Review the last exchange or the whole session with the judge.",
               group: "Side-Eye",
               palette: true,
-              slash: { name: "sideeye", aliases: ["sideeye-review"], arguments: true },
+              slash: {name: "sideeye", arguments: true},
               enabled: () => context.ui.router.current()?.type === "session",
               run: async (input) => {
                 const route = context.ui.router.current()
@@ -27,12 +123,23 @@ export default {
                   })
                   return
                 }
-                const session = await context.client.session.get({sessionID: route.sessionID})
-                const exported = await context.client.session.export({
-                  sessionID: route.sessionID,
-                  sanitize: true,
-                })
-                const result = await reviewExport(session, exported, context.options, input ?? "")
+                if (!input?.trim()) {
+                  await pickAndReview(context, route.sessionID)
+                  return
+                }
+                if (/^(--help|help)$/i.test(input.trim())) {
+                  await context.ui.dialog.alert({title: "Side-Eye", message: USAGE})
+                  return
+                }
+                const result = await reviewExport(
+                  await context.client.session.get({sessionID: route.sessionID}),
+                  await context.client.session.export({
+                    sessionID: route.sessionID,
+                    sanitize: true,
+                  }),
+                  context.options,
+                  input,
+                )
                 await context.client.session.synthetic({sessionID: route.sessionID, text: result})
               },
             },
