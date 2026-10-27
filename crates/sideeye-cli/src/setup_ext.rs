@@ -69,10 +69,6 @@ pub(crate) fn install_opencode_plugin(
             .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     }
 
-    // A clean output directory prevents a stale tui.js from surviving a
-    // TypeScript emit change and silently serving an old command.
-    let _ = fs::remove_dir_all(destination.join("dist"));
-
     let npm = which("npm").ok_or("npm is required to build the OpenCode plugin")?;
     for args in [["ci", "--ignore-scripts"], ["run", "build"]] {
         let output = Command::new(&npm)
