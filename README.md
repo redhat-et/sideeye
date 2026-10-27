@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.11
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.12
 
 ---
 
@@ -98,8 +98,9 @@ Ambient Anthropic credentials are not sent to a foreign base unless you set
 
 ### OpenCode
 
-The plugin adds one native TUI command. With no arguments it opens a scope
-picker, then asks for optional extra instructions:
+The plugin adds one native TUI command. With no arguments it first asks for
+optional focus instructions (type and press Enter), then opens the scope
+selector (arrow keys + Enter):
 
 ```text
 /sideeye                    # pick Last exchange or Whole session
@@ -110,7 +111,7 @@ picker, then asks for optional extra instructions:
 /sideeye all security and missing tests
 ```
 
-The scope picker shows the free estimate and asks for confirmation before any
+The scope selector shows the free estimate and asks for confirmation before any
 judge spend. If the packet is too large for the judge context, Side-Eye shrinks
 the packet automatically using the free token count and retries; the estimate
 says when it was auto-trimmed. Extra text is reviewer instruction on top of the
