@@ -10,6 +10,17 @@ fn bin() -> PathBuf {
 }
 
 #[cfg(unix)]
+fn fake_npm(directory: &Path) {
+    let path = directory.join("npm");
+    fs::write(
+        &path,
+        "#!/bin/sh\nif [ \"$1\" = \"run\" ] && [ \"$2\" = \"build\" ]; then\n  /bin/mkdir -p dist\n  printf '%s' 'Side-Eye review scope' > dist/tui.js\nfi\nexit 0\n",
+    )
+    .expect("write fake npm");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod fake npm");
+}
+
+#[cfg(unix)]
 fn fake_bin(directory: &Path, name: &str, code: i32) {
     let path = directory.join(name);
     fs::write(&path, format!("#!/bin/sh\nexit {code}\n")).expect("write fake binary");
@@ -29,7 +40,7 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
     .expect("seed opencode");
     let fakebin = dir.path().join("bin");
     fs::create_dir_all(&fakebin).expect("fakebin");
-    fake_bin(&fakebin, "npm", 0);
+    fake_npm(&fakebin);
     fake_bin(&fakebin, "opencode", 0);
     fake_bin(&fakebin, "git", 0);
 
@@ -97,6 +108,9 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
     .expect("manifest json");
     assert_eq!(manifest["type"], "module");
     assert!(manifest["exports"].is_object());
+    let tui = fs::read_to_string(data.join("opencode-plugin/dist/tui.js")).expect("tui entrypoint");
+    assert!(tui.contains("Side-Eye review scope"));
+    assert!(!tui.contains("sideeye-review"));
 
     let cli: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("cli.json")).expect("cli"))

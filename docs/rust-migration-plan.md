@@ -177,7 +177,7 @@ all three harnesses pass end to end; the local metrics ledger and stats work.
 
 ## Test coverage target
 
-Current (0.6.9 development):
+Current (0.6.10 development):
 
 - Python: 169 tests.
 - Rust: 72 tests.

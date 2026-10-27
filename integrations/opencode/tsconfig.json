@@ -4,7 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "skipLibCheck": true,
     "noEmit": true,
     "types": ["node"]

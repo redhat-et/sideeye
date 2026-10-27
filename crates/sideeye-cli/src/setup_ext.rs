@@ -69,6 +69,10 @@ pub(crate) fn install_opencode_plugin(
             .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     }
 
+    // A clean output directory prevents a stale tui.js from surviving a
+    // TypeScript emit change and silently serving an old command.
+    let _ = fs::remove_dir_all(destination.join("dist"));
+
     let npm = which("npm").ok_or("npm is required to build the OpenCode plugin")?;
     for args in [["ci", "--ignore-scripts"], ["run", "build"]] {
         let output = Command::new(&npm)
@@ -83,6 +87,20 @@ pub(crate) fn install_opencode_plugin(
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
+    }
+
+    let built_tui = destination.join("dist/tui.js");
+    let tui = fs::read_to_string(&built_tui).map_err(|error| {
+        format!(
+            "OpenCode plugin did not build {}: {error}",
+            built_tui.display()
+        )
+    })?;
+    if !tui.contains("Side-Eye review scope") {
+        return Err(format!(
+            "OpenCode plugin build produced a stale TUI entrypoint at {}",
+            built_tui.display()
+        ));
     }
 
     // Keep the manifest valid even if an npm/OpenCode reconciliation step
