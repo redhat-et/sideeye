@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.12
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.13
 
 ---
 
@@ -70,6 +70,17 @@ the session. Providers share one packet/verdict contract:
   gateways, Ollama, LM Studio, and vLLM. The estimate is labeled approximate
   because OpenAI has no free count endpoint; cost is reported as unknown unless
   the route provides its own metering. Tool calling is required.
+
+Output caps are provider-aware: **8192** for Anthropic and **16384** for
+OpenAI-compatible routes. GLM and DeepSeek reasoning tokens count toward the
+output cap, so 4096 is too small for a real GLM review. Use
+`sideeye setup --max-tokens N` to change it. The estimate prices the full cap,
+so it is conservative.
+
+Context windows are model-aware: **1,000,000** for GLM and DeepSeek,
+**200,000** for Claude. Packets that exceed the window are auto-trimmed using
+the free token count. Slow routes can be given a longer client timeout with
+`SIDEEYE_JUDGE_TIMEOUT_SECS=600`.
 
 Local example:
 
@@ -249,7 +260,7 @@ pytest -q
 (cd integrations/opencode && npm ci && npm run typecheck && npm test)
 ```
 
-Current coverage: **169 Python tests**, **72 Rust tests**, **11 OpenCode plugin
+Current coverage: **169 Python tests**, **73 Rust tests**, **11 OpenCode plugin
 tests**.
 
 ---

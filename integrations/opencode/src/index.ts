@@ -67,7 +67,11 @@ async function reviewWithRust(
   const rust = Array.isArray(options.rust) ? options.rust : [options.rust ?? "sideeye"]
   const provider = typeof options.provider === "string" ? options.provider : "anthropic"
   const model = typeof options.model === "string" ? options.model : "claude-opus-4-8"
-  const maxTokens = Number.isInteger(options.maxTokens) ? String(options.maxTokens) : "4096"
+  const maxTokens = Number.isInteger(options.maxTokens)
+    ? String(options.maxTokens)
+    : provider === "anthropic"
+      ? "8192"
+      : "16384"
   const args = [...rust.slice(1)]
   const focus = instructions ? ["--instructions", instructions] : []
   const timeoutMs = Number.isInteger(options.timeoutMs) ? Number(options.timeoutMs) : 300000
@@ -168,7 +172,7 @@ export function formatEstimate(
     "Side-Eye estimate (no judge call made):",
     `  estimated cost: ${estimate.cost_known === false ? "unknown (provider pricing not configured)" : `$${Number(estimate.estimated_cost_usd ?? 0).toFixed(4)}`}`,
     `  input tokens: ${estimate.input_tokens ?? "unknown"}${estimate.exact === false ? " (estimated)" : ""}`,
-    `  code: ${estimate.adapter_version ?? (estimate.max_tokens ? `rust (max ${estimate.max_tokens} output tokens)` : "unknown")}`,
+    `  engine: ${estimate.adapter_version ?? "rust"}${estimate.max_tokens ? ` · output cap: ${estimate.max_tokens} tokens` : ""}`,
     ...(typeof estimate.model === "string" ? [`  judge: ${estimate.model}`] : []),
     ...(typeof estimate.turns === "number"
       ? [`  scope: ${scopeLabel} · ${estimate.turns} turns · ${estimate.has_diff ? `git diff (${estimate.artifacts} artifact(s), ${estimate.diff_complete ? "complete" : "partial"})` : "narrative only"}`]

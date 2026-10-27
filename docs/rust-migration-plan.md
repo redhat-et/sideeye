@@ -109,6 +109,8 @@ plugin options, free route verification, and noninteractive failure.
 - [x] Manifest artifact for reviewed files.
 - [x] Hard timeout on the plugin's engine/judge call.
 - [x] Exact-token auto-fit when a packet exceeds the judge context; retries with a smaller budget and reports the trim in the estimate.
+- [x] Model-aware context windows: 1M for GLM/DeepSeek, 200k for Claude.
+- [x] Provider-aware output caps: 8192 Anthropic, 16384 OpenAI-compatible.
 - [x] Guided setup wizard and free `count_tokens` verification.
 - [x] `sideeye --help`, `sideeye setup --help`, and `sideeye doctor --help`
       with examples.
@@ -177,10 +179,10 @@ all three harnesses pass end to end; the local metrics ledger and stats work.
 
 ## Test coverage target
 
-Current (0.6.12 development):
+Current (0.6.13 development):
 
 - Python: 169 tests.
-- Rust: 72 tests.
+- Rust: 73 tests.
 - OpenCode plugin: 11 tests.
 
 The Rust suite must reach behavioral parity, not merely the same count. Track

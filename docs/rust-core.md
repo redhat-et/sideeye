@@ -35,7 +35,12 @@ sideeye review --provider fake --fixture verdict.json packet.json
 `estimate` never calls the judge. Anthropic uses the free `count_tokens`
 endpoint and exact pricing. OpenAI-compatible routes use a labeled heuristic
 because there is no standard free count endpoint; their cost is reported as
-unknown unless the gateway provides its own metering. Local routes need a
+unknown unless the gateway provides its own metering.
+
+Context windows are model-aware (1M for GLM/DeepSeek, 200k for Claude).
+Output caps are provider-aware (8192 Anthropic, 16384 OpenAI-compatible);
+GLM reasoning tokens count toward the cap. `SIDEEYE_JUDGE_TIMEOUT_SECS` can
+extend the client timeout for slow routes. Local routes need a
 placeholder credential (`local`) only because the route guard requires one.
 
 Both `estimate` and `review` refuse a judge model that also generated turns in

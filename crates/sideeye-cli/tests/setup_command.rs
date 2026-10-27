@@ -37,6 +37,7 @@ fn setup_writes_secure_config_and_normalizes_base() {
         serde_json::from_str(&fs::read_to_string(&config).expect("read config")).expect("json");
     assert_eq!(saved["judge"]["api_key"], "test-key");
     assert_eq!(saved["judge"]["base_url"], "https://judge.example");
+    assert_eq!(saved["judge"]["max_tokens"], 8192);
     #[cfg(unix)]
     assert_eq!(
         fs::metadata(&config).unwrap().permissions().mode() & 0o777,
@@ -177,6 +178,7 @@ fn setup_supports_an_openai_compatible_local_provider() {
     assert_eq!(saved["judge"]["provider"], "openai-compatible");
     assert_eq!(saved["judge"]["base_url"], base);
     assert_eq!(saved["judge"]["api_key"], "local");
+    assert_eq!(saved["judge"]["max_tokens"], 16384);
 }
 
 #[test]
