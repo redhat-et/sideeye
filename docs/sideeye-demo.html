@@ -166,7 +166,7 @@ button:focus-visible { outline: 2px solid #1f6feb; outline-offset: 2px; }
 
 <p class="footer">
   Draft cheap, review expensive. The judge critiques; the drafting model revises. Random benchmark samples, human escalations, and dogfood reviews stay in separate streams.<br>
-  <a href="https://github.com/redhat-et/sideeye">github.com/redhat-et/sideeye</a> · <a href="https://github.com/redhat-et/sideeye/releases/tag/v0.6.13">release v0.6.13</a> · <a href="https://github.com/redhat-et/sideeye/blob/main/docs/rust-core.md">Rust migration</a>
+  <a href="https://github.com/redhat-et/sideeye">github.com/redhat-et/sideeye</a> · <a href="https://github.com/redhat-et/sideeye/releases/tag/v0.6.14">release v0.6.14</a> · <a href="https://github.com/redhat-et/sideeye/blob/main/docs/rust-core.md">Rust migration</a>
 </p>
 
 <script>
@@ -184,7 +184,7 @@ button:focus-visible { outline: 2px solid #1f6feb; outline-offset: 2px; }
       { k: 'mix', html: '<span class="dim">  session: </span><span class="ok">ses_f2bf…3DAX</span><span class="dim">  source: opencode</span>' },
       { k: 'dim', t: '  repo:    /Users/you/code/sideeye' },
       { k: 'dim', t: '  scope:   last exchange + git diff vs origin/main (partial, 119.9k chars)' },
-      { k: 'dim', t: '  engine:  rust (sideeye v0.6.13)' },
+      { k: 'dim', t: '  output cap: 8192 tokens' },
       { k: 'dim', t: '  request: security vulnerabilities and missing tests' },
       { k: 'dim', t: '  judge:   claude-opus-5-5' },
       { k: 'wait', pre: '  ', live: ' counting tokens (free)…', final: '  ⠋ counting tokens (free)…            → 176,575 input tokens', dur: 1600 },
@@ -203,7 +203,7 @@ button:focus-visible { outline: 2px solid #1f6feb; outline-offset: 2px; }
       { k: 'user', t: '/sideeye last --confirm security vulnerabilities and missing tests' },
       { k: 'blank' },
       { k: 'dim', t: 'sideeye · review' },
-      { k: 'mix', html: '<span class="dim">  source: </span><span class="ok">opencode</span><span class="dim">  engine: </span><span class="ok">rust</span><span class="dim">  judge: claude-opus-5-5</span>' },
+      { k: 'mix', html: '<span class="dim">  source: </span><span class="ok">opencode</span><span class="dim">  output cap: </span><span class="ok">8192</span><span class="dim">  judge: claude-opus-5-5</span>' },
       { k: 'mix', html: '<span class="dim">  packet: </span><span class="ok">ReviewPacket</span><span class="dim">  diff base: origin/main merge-base  request: security</span>' },
       { k: 'mix', html: '<span class="dim">    </span><span class="ok">✓</span><span class="dim"> hidden reasoning excluded</span>' },
       { k: 'mix', html: '<span class="dim">    </span><span class="ok">✓</span><span class="dim"> credentials redacted</span>' },
