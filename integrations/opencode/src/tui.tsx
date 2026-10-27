@@ -25,7 +25,10 @@ function failed(result: string): boolean {
 
 async function load(context: Context, sessionID: string) {
   const session = await context.client.session.get({sessionID})
-  const exported = await context.client.session.export({sessionID, sanitize: true})
+  // OpenCode's sanitizer replaces entire text blocks, not just credentials.
+  // Side-Eye redacts the packet itself before judging, so keep the review
+  // content readable here.
+  const exported = await context.client.session.export({sessionID, sanitize: false})
   return {session, exported}
 }
 
@@ -140,7 +143,7 @@ export default {
                   await context.client.session.get({sessionID: route.sessionID}),
                   await context.client.session.export({
                     sessionID: route.sessionID,
-                    sanitize: true,
+                    sanitize: false,
                   }),
                   context.options,
                   input,

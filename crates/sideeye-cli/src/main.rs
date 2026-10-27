@@ -117,7 +117,7 @@ enum Command {
         #[arg(long = "touched-file")]
         touched_files: Vec<String>,
         /// Character budget for the packet; 0 disables budgeting.
-        #[arg(long, default_value_t = 400_000)]
+        #[arg(long, default_value_t = 600_000)]
         max_packet_chars: usize,
         /// Review scope: `session` for all context, `last-exchange` for the last request.
         #[arg(long, default_value = "session")]
@@ -711,7 +711,7 @@ fn session_review(
         max_tokens,
         instructions,
     )?;
-    let mut max_chars = 400_000_usize;
+    let mut max_chars = 600_000_usize;
     let mut packet = None;
     let mut estimate_output = None;
     let mut last_error = None;

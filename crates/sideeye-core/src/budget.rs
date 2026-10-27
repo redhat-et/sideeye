@@ -35,7 +35,9 @@ impl ReviewPacket {
             return self.clone();
         }
 
-        let artifact_budget = (max_chars / 4).min(120_000);
+        // Give code evidence a larger share than narration: a review without
+        // the changed code is much weaker than one with less prose.
+        let artifact_budget = (max_chars * 3 / 5).min(300_000);
         // Reserve room for elision markers and the trailing budget note.
         let transcript_budget = max_chars
             .saturating_sub(artifact_budget)

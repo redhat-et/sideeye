@@ -111,6 +111,10 @@ plugin options, free route verification, and noninteractive failure.
 - [x] Exact-token auto-fit when a packet exceeds the judge context; retries with a smaller budget and reports the trim in the estimate.
 - [x] Model-aware context windows: 1M for GLM/DeepSeek, 200k for Claude.
 - [x] Provider-aware output caps: 8192 Anthropic, 16384 OpenAI-compatible.
+- [x] Keep the full transcript readable: Side-Eye redacts credentials; OpenCode
+      `sanitize:true` is not used because it removes user/assistant text.
+- [x] Give code evidence 60% of the packet budget (cap 300k) and raise the diff
+      cap to 400k.
 - [x] Guided setup wizard and free `count_tokens` verification.
 - [x] `sideeye --help`, `sideeye setup --help`, and `sideeye doctor --help`
       with examples.
@@ -179,7 +183,7 @@ all three harnesses pass end to end; the local metrics ledger and stats work.
 
 ## Test coverage target
 
-Current (0.6.14 development):
+Current (0.6.15 development):
 
 - Python: 169 tests.
 - Rust: 73 tests.

@@ -83,7 +83,7 @@ async function reviewWithRust(
   const packetScope = scope === "last" ? "last-exchange" : "session"
   let maxChars = Number.isInteger(options.maxPacketChars)
     ? Number(options.maxPacketChars)
-    : 400_000
+    : 600_000
   let packet: AnyRecord | undefined
   let packetJson = ""
   let estimateRecord: AnyRecord | undefined

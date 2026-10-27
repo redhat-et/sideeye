@@ -25,8 +25,10 @@ Against OpenCode `v2.0.16`:
 
 - the TUI plugin API can register slash commands, dialogs, toasts, routes, and
   session panels;
-- the generated client exposes the full sanitized session export
-  (`session.export({sanitize:true})`);
+- the generated client exposes the full session export
+  (`session.export({sanitize:false})`); Side-Eye redacts credentials itself
+  before judging. OpenCode's `sanitize:true` replaces entire text blocks, which
+  makes the transcript unreadable to the judge.
 - the export contains session identity, model/provider metadata, token totals,
   user messages, assistant text, tool parts/results, and timestamps;
 - the session API exposes projected context and session diff operations;
@@ -52,10 +54,13 @@ The Rust capture adapter converts a sanitized OpenCode export into a
   and write counts and per-turn generator model ids;
 - the last-exchange scope keeps only the last real user request and subsequent
   assistant work; whole-session usage is not reused for a single exchange;
-- the git diff and a `manifest` artifact list the reviewed files.
+- the git diff and a `manifest` artifact list the reviewed files; the packet
+  budget gives code evidence 60% of the character budget (capped at 300k) so a
+  large diff is less likely to be cut before the transcript.
 
-The export is sanitized by OpenCode and redacted again by Side-Eye before
-judging. `sanitize=true` is not a substitute for Side-Eye redaction.
+The export is read without OpenCode's text sanitizer and redacted by Side-Eye
+before judging. `sanitize=true` is not a substitute for Side-Eye redaction; it
+removes the very request and claims the judge needs to read.
 
 ## Flow
 
