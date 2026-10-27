@@ -77,27 +77,63 @@ async function reviewWithRust(
       : join(homedir(), ".local", "share", "sideeye", "opencode-verdicts.jsonl")
   const touched = touchedFiles.flatMap((file) => ["--touched-file", String(file.path)])
   const packetScope = scope === "last" ? "last-exchange" : "session"
-  const packetRun = await run(rust[0], [
-    ...args, "packet", "--opencode-export", "-", "--redact",
-    "--repo", repo, "--diff-base", diffBase, "--scope", packetScope, ...touched,
-  ], JSON.stringify(data), repo, timeoutMs)
-  if (packetRun.code !== 0) {
-    return `Side-Eye packet build failed before producing a verdict.\n\n${packetRun.stderr || packetRun.stdout}`
-  }
-  const packet = lastJsonObject(packetRun.stdout)
-  if (!packet) return `Side-Eye returned no packet.\n\n${packetRun.stdout}`
-  const packetJson = JSON.stringify(packet)
+  let maxChars = Number.isInteger(options.maxPacketChars)
+    ? Number(options.maxPacketChars)
+    : 400_000
+  let packet: AnyRecord | undefined
+  let packetJson = ""
+  let estimateRecord: AnyRecord | undefined
+  let lastError = ""
+  let autoTrimmed = false
 
-  const estimate = await run(rust[0], [
-    ...args, "estimate", "-", "--provider", provider,
-    "--model", model, "--max-tokens", maxTokens, ...focus,
-  ], packetJson, repo, timeoutMs)
-  if (estimate.code !== 0) {
-    return `Side-Eye estimate failed before producing a verdict.\n\n${estimate.stderr || estimate.stdout}`
+  // Character budgets are approximate for code-heavy diffs. The free
+  // count_tokens call is exact, so shrink and retry until the packet fits.
+  for (let attempt = 0; attempt < 7 && maxChars >= 20_000; attempt += 1) {
+    const packetRun = await run(rust[0], [
+      ...args, "packet", "--opencode-export", "-", "--redact",
+      "--repo", repo, "--diff-base", diffBase, "--scope", packetScope,
+      "--max-packet-chars", String(maxChars), ...touched,
+    ], JSON.stringify(data), repo, timeoutMs)
+    if (packetRun.code !== 0) {
+      return `Side-Eye packet build failed before producing a verdict.\n\n${packetRun.stderr || packetRun.stdout}`
+    }
+    const candidate = lastJsonObject(packetRun.stdout)
+    if (!candidate) return `Side-Eye returned no packet.\n\n${packetRun.stdout}`
+    const candidateJson = JSON.stringify(candidate)
+    const estimate = await run(rust[0], [
+      ...args, "estimate", "-", "--provider", provider,
+      "--model", model, "--max-tokens", maxTokens, ...focus,
+    ], candidateJson, repo, timeoutMs)
+    if (estimate.code === 0) {
+      const record = lastJsonObject(estimate.stdout)
+      if (!record) return `Side-Eye returned no structured estimate.\n\n${estimate.stdout}`
+      packet = candidate
+      packetJson = candidateJson
+      estimateRecord = record
+      break
+    }
+    lastError = estimate.stderr || estimate.stdout
+    if (!isContextWindowError(lastError)) {
+      return `Side-Eye estimate failed before producing a verdict.\n\n${lastError}`
+    }
+    const next = Math.max(20_000, Math.floor(maxChars * 0.6))
+    if (next >= maxChars) break
+    maxChars = next
+    autoTrimmed = true
   }
-  const estimateRecord = lastJsonObject(estimate.stdout)
-  if (!estimateRecord) return `Side-Eye returned no structured estimate.\n\n${estimate.stdout}`
-  if (!confirm) return formatEstimate(estimateRecord, instructions, scope, estimateHint)
+
+  if (!packet || !estimateRecord) {
+    return [
+      `Side-Eye could not fit this review into ${model}'s context window even after trimming.`,
+      "",
+      "Try `/sideeye last` for a smaller scope, or choose a larger-context judge in setup.",
+      "",
+      lastError,
+    ].join("\n")
+  }
+  if (!confirm) {
+    return formatEstimate(estimateRecord, instructions, scope, estimateHint, autoTrimmed)
+  }
 
   const out = await run(rust[0], [
     ...args, "review", "-", "--provider", provider,
@@ -112,11 +148,18 @@ async function reviewWithRust(
   return `Side-Eye verdict (raw structured record):\n${JSON.stringify(record, null, 2)}`
 }
 
+function isContextWindowError(message: string): boolean {
+  return /context window is|exceeds the context window|too many input tokens|packet is .*input tokens/i.test(
+    message,
+  )
+}
+
 export function formatEstimate(
   estimate: AnyRecord,
   instructions = "",
   scope?: ReviewScope,
   showHint = true,
+  autoTrimmed = false,
 ): string {
   const scopeLabel = scope === "last" ? "last exchange" : "whole session"
   const scopeToken = scope === "last" ? "last " : scope === "all" ? "all " : ""
@@ -130,6 +173,7 @@ export function formatEstimate(
     ...(typeof estimate.turns === "number"
       ? [`  scope: ${scopeLabel} · ${estimate.turns} turns · ${estimate.has_diff ? `git diff (${estimate.artifacts} artifact(s), ${estimate.diff_complete ? "complete" : "partial"})` : "narrative only"}`]
       : []),
+    ...(autoTrimmed ? ["  packet: auto-trimmed to fit the judge context"] : []),
     ...(instructions ? [`  request: ${instructions}`] : []),
     ...(showHint ? ["", hint] : []),
   ].join("\n")

@@ -317,6 +317,55 @@ test("picker selects last exchange, collects instructions, and confirms", async 
   assert.match(estimateLine, /--instructions focus on tests/)
 })
 
+test("context overflow retries with a smaller packet budget", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-fit-"))
+  const repo = join(workspace, "project")
+  mkdirSync(repo)
+  git(repo, ["init", "-q"])
+  git(repo, ["config", "user.email", "test@example.invalid"])
+  git(repo, ["config", "user.name", "Side-Eye Test"])
+  const file = join(repo, "answer.txt")
+  writeFile(file, "base\n")
+  git(repo, ["add", "answer.txt"])
+  git(repo, ["commit", "-qm", "base"])
+  writeFile(file, "after\n")
+  const engine = join(workspace, "fake-rust.mjs")
+  writeFile(engine, [
+    "let input='';",
+    "process.stdin.on('data', (chunk) => input += chunk);",
+    "process.stdin.on('end', () => {",
+    "  const args = process.argv.slice(2);",
+    "  const command = args[0];",
+    "  if (command === 'packet') {",
+    "    const index = args.indexOf('--max-packet-chars');",
+    "    const max = Number(args[index + 1]);",
+    "    process.stdout.write(JSON.stringify({large: max >= 300000}) + '\\n');",
+    "    return;",
+    "  }",
+    "  if (command === 'estimate') {",
+    "    const packet = JSON.parse(input);",
+    "    if (packet.large) {",
+    "      console.error(\"sideeye: provider configuration error: packet is 217138 input tokens; claude-opus-4-8's context window is 200000 (need 221234 with output).\");",
+    "      process.exit(1);",
+    "    }",
+    "    process.stdout.write(JSON.stringify({input_tokens: 1000, estimated_cost_usd: 0.01, model: 'm', max_tokens: 4096, turns: 1, artifacts: 1, has_diff: true, diff_complete: true, exact: true, cost_known: true}) + '\\n');",
+    "    return;",
+    "  }",
+    "  process.stdout.write(JSON.stringify({score: 5, summary: 'trimmed verdict'}) + '\\n');",
+    "});",
+  ].join("\n"))
+  const session = {location: {directory: repo}}
+  const data = {
+    info: {id: "ses-fit", model: {providerID: "openai", id: "gpt-test"}},
+    messages: [{type: "user", text: "task"}],
+  }
+  const options = {engine: "rust", rust: [process.execPath, engine]}
+  const estimate = await testHelpers.reviewExport(session, data, options)
+  assert.match(estimate, /auto-trimmed to fit the judge context/)
+  const verdict = await testHelpers.reviewExport(session, data, options, "--confirm")
+  assert.match(verdict, /trimmed verdict/)
+})
+
 test("rust engine call times out instead of hanging", async () => {
   const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-timeout-"))
   const repo = join(workspace, "project")

@@ -702,22 +702,49 @@ fn session_review(
     } else {
         Vec::new()
     };
-    let packet = captured
-        .into_packet(artifacts)?
-        .redacted()
-        .budgeted(400_000);
-    packet.validate()?;
-    guard_self_grading(&packet, &model)?;
     let judge = build_provider(
         &provider_name,
         base_url,
-        model,
+        model.clone(),
         None,
         max_tokens,
         instructions,
     )?;
+    let mut max_chars = 400_000_usize;
+    let mut packet = None;
+    let mut estimate_output = None;
+    let mut last_error = None;
+    for attempt in 0..7 {
+        let candidate = captured
+            .clone()
+            .into_packet(artifacts.clone())?
+            .redacted()
+            .budgeted(max_chars);
+        candidate.validate()?;
+        guard_self_grading(&candidate, &model)?;
+        match judge.estimate(&candidate) {
+            Ok(estimate) => {
+                packet = Some(candidate);
+                estimate_output = Some(estimate);
+                break;
+            }
+            Err(error) if is_context_error(&error) && attempt < 6 => {
+                last_error = Some(error);
+                max_chars = (max_chars * 6 / 10).max(20_000);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let packet = packet.ok_or_else(|| {
+        format!(
+            "could not fit this session into the judge context even after trimming; try --no-code, a smaller scope, or a larger-context judge{}",
+            last_error
+                .map(|error| format!("\n\n{error}"))
+                .unwrap_or_default()
+        )
+    })?;
     if estimate_only {
-        println!("{}", serde_json::to_string(&judge.estimate(&packet)?)?);
+        println!("{}", serde_json::to_string(&estimate_output)?);
         return Ok(());
     }
     let verdict = judge.judge(&packet)?;
@@ -728,6 +755,11 @@ fn session_review(
     }
     println!("{}", serde_json::to_string(&verdict)?);
     Ok(())
+}
+
+fn is_context_error(error: &sideeye_providers::ProviderError) -> bool {
+    let text = error.to_string();
+    text.contains("context window") || text.contains("estimated packet is")
 }
 
 fn default_diff_base(repo: &Path) -> String {

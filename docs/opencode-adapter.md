@@ -73,7 +73,9 @@ The plugin passes `--scope session|last-exchange` to `sideeye packet`. The Rust
 engine handles the packet, estimate, guards, judging, and persisted record.
 
 The first invocation is estimate-only: it performs the free route/token/cost
-check and does not judge. The picker flow shows that estimate in a confirmation
+check and does not judge. If the context guard rejects the packet, the plugin
+reduces the character budget and retries with the exact free token count before
+showing the estimate. The picker flow shows that estimate in a confirmation
 dialog; the slash flow inserts it with the exact `/sideeye ... --confirm`
 command to run next. The structured verdict is inserted verbatim as a synthetic
 message and is never routed through the drafting model to generate the display.
