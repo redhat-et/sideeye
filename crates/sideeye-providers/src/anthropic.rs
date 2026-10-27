@@ -18,7 +18,6 @@ use crate::{Advice, JudgeAdvisor, JudgeProvider, ProviderError};
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MAX_TOKENS: u32 = 4096;
 const DEFAULT_TIMEOUT_SECS: u64 = 90;
-const DEFAULT_CONTEXT_WINDOW: u64 = 200_000;
 const JUDGE_FIELDS: &str = "answered_what_was_asked, correctness, claims_supported, score, issues, overall_severity, summary";
 
 /// Routes that are known to serve the cheap drafting model. A judge on these
@@ -457,12 +456,8 @@ struct CoreIssue {
     evidence: Vec<String>,
 }
 
-fn context_window(_model: &str) -> u64 {
-    DEFAULT_CONTEXT_WINDOW
-}
-
 fn ensure_fits(input_tokens: u64, max_tokens: u64, model: &str) -> Result<(), ProviderError> {
-    let window = context_window(model);
+    let window = crate::context_window_for_model(model);
     if input_tokens + max_tokens > window {
         return Err(ProviderError::Configuration(format!(
             "packet is {input_tokens} input tokens; {model}'s context window is {window} (need {} with output). Reduce the packet or use a larger-context judge.",

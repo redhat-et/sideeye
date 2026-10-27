@@ -19,7 +19,6 @@ use crate::{
 
 const DEFAULT_MAX_TOKENS: u32 = 4096;
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
-const DEFAULT_CONTEXT_WINDOW: u64 = 200_000;
 
 pub struct OpenAiProvider {
     base_url: String,
@@ -258,10 +257,12 @@ impl JudgeProvider for OpenAiProvider {
         // cheap and label it approximate; the judge call still enforces usage.
         let chars = body.to_string().len();
         let input_tokens = (chars as u64).div_ceil(4);
-        if input_tokens + self.max_tokens as u64 > DEFAULT_CONTEXT_WINDOW {
+        let window = crate::context_window_for_model(&self.model);
+        if input_tokens + self.max_tokens as u64 > window {
             return Err(ProviderError::Configuration(format!(
-                "estimated packet is {input_tokens} input tokens; the default context window is {DEFAULT_CONTEXT_WINDOW} (need {} with output). Reduce the packet or use a larger-context route.",
-                input_tokens + self.max_tokens as u64
+                "estimated packet is {input_tokens} input tokens; {model}'s context window is {window} (need {} with output). Reduce the packet or use a larger-context route.",
+                input_tokens + self.max_tokens as u64,
+                model = self.model,
             )));
         }
         let diffs = packet

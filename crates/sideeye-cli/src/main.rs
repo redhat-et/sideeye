@@ -81,8 +81,9 @@ enum Command {
         #[arg(long, default_value = "claude-opus-4-8")]
         model: String,
         /// Judge output token ceiling written to the plugin options.
-        #[arg(long, default_value_t = 4096)]
-        max_tokens: u32,
+        /// Defaults to 8192 for Anthropic and 16384 for OpenAI-compatible routes.
+        #[arg(long)]
+        max_tokens: Option<u32>,
         /// Accept the supplied/default answers without interactive prompts.
         #[arg(long)]
         yes: bool,
@@ -1089,9 +1090,12 @@ fn build_provider(
     let (base, key, rubric_text, rubric_version) =
         provider_material(base_url, rubric, EMBEDDED_RUBRIC, "rubric_session_v2")?;
     let instructions = instructions.unwrap_or_default();
+    let timeout = env::var("SIDEEYE_JUDGE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok());
     match provider_name {
-        "anthropic" => Ok(Box::new(
-            sideeye_providers::AnthropicProvider::new(
+        "anthropic" => {
+            let mut provider = sideeye_providers::AnthropicProvider::new(
                 base,
                 key,
                 model,
@@ -1099,13 +1103,27 @@ fn build_provider(
                 rubric_version,
             )
             .with_max_tokens(max_tokens)
-            .with_instructions(instructions),
-        )),
-        "openai" | "openai-compatible" => Ok(Box::new(
-            sideeye_providers::OpenAiProvider::new(base, key, model, rubric_text, rubric_version)
-                .with_max_tokens(max_tokens)
-                .with_instructions(instructions),
-        )),
+            .with_instructions(instructions);
+            if let Some(seconds) = timeout {
+                provider = provider.with_timeout_secs(seconds);
+            }
+            Ok(Box::new(provider))
+        }
+        "openai" | "openai-compatible" => {
+            let mut provider = sideeye_providers::OpenAiProvider::new(
+                base,
+                key,
+                model,
+                rubric_text,
+                rubric_version,
+            )
+            .with_max_tokens(max_tokens)
+            .with_instructions(instructions);
+            if let Some(seconds) = timeout {
+                provider = provider.with_timeout_secs(seconds);
+            }
+            Ok(Box::new(provider))
+        }
         other => Err(format!(
             "provider {other:?} is not implemented; use anthropic or openai-compatible"
         )
@@ -1254,7 +1272,7 @@ fn setup(
     repo: Option<PathBuf>,
     provider: String,
     model: String,
-    max_tokens: u32,
+    max_tokens: Option<u32>,
     yes: bool,
     verify: bool,
     no_verify: bool,
@@ -1370,7 +1388,8 @@ fn setup(
     let key = key.trim().to_owned();
 
     let mut model = model;
-    let mut max_tokens = max_tokens;
+    let default_max_tokens = if provider == "anthropic" { 8192 } else { 16384 };
+    let mut max_tokens = max_tokens.unwrap_or(default_max_tokens);
     let anthropic_default = "claude-opus-4-8";
     if interactive {
         if provider != "anthropic" && model == anthropic_default {

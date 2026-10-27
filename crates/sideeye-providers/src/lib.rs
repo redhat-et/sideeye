@@ -24,6 +24,18 @@ pub struct Advice {
     pub cost_usd: Option<f64>,
 }
 
+/// Context window for a judge model. GLM and DeepSeek routes used here expose
+/// 1M-token windows; Claude routes expose 200k. Unknown models stay
+/// conservative until a provider/config override is added.
+pub fn context_window_for_model(model: &str) -> u64 {
+    let model = model.to_lowercase();
+    if model.contains("glm") || model.contains("deepseek") {
+        1_000_000
+    } else {
+        200_000
+    }
+}
+
 /// Free-form second opinion on recent work. Unlike `JudgeProvider`, this does
 /// not produce a structured verdict.
 pub trait JudgeAdvisor {
@@ -146,6 +158,17 @@ mod tests {
             output_tokens: Some(1),
             cost_usd: Some(0.0),
         }
+    }
+
+    #[test]
+    fn context_window_is_model_aware() {
+        assert_eq!(context_window_for_model("claude-opus-4-8"), 200_000);
+        assert_eq!(context_window_for_model("rits/zai-org/glm-5-3"), 1_000_000);
+        assert_eq!(
+            context_window_for_model("rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"),
+            1_000_000
+        );
+        assert_eq!(context_window_for_model("unknown-model"), 200_000);
     }
 
     #[test]
