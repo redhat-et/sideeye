@@ -4,7 +4,7 @@ import { reviewExport, type ReviewScope } from "./index.js"
 const USAGE = [
   "Side-Eye review",
   "",
-  "/sideeye                 choose last exchange or whole session",
+  "/sideeye                 type focus text, then choose the scope",
   "/sideeye last [text]     estimate the last request + response",
   "/sideeye all [text]      estimate the whole session",
   "/sideeye --confirm       submit the whole session after the estimate",
@@ -30,9 +30,20 @@ async function load(context: Context, sessionID: string) {
 }
 
 export async function pickAndReview(context: Context, sessionID: string): Promise<void> {
+  // Ask for the optional focus text first. This is a real text input; the
+  // scope selector below is a filterable list, so typing focus text there only
+  // filters the two scope options.
+  const instructions = await context.ui.dialog.prompt({
+    title: "Side-Eye focus instructions",
+    description:
+      "Optional. Type what the judge should focus on, then press Enter. Leave blank to use the rubric only.",
+    placeholder: "e.g. security, missing tests, API compatibility",
+  })
+  if (instructions === undefined) return
+
   const scope = await context.ui.dialog.select<ReviewScope>({
     title: "Side-Eye review scope",
-    placeholder: "Choose what the judge should review",
+    placeholder: "Choose with arrow keys, then press Enter",
     options: [
       {
         title: "Last exchange",
@@ -48,12 +59,6 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
   })
   if (!scope) return
 
-  const instructions = await context.ui.dialog.prompt({
-    title: "Extra instructions (optional)",
-    description: "Added on top of the rubric. Leave blank to use the rubric only.",
-    placeholder: "e.g. focus on security and missing tests",
-  })
-  if (instructions === undefined) return
   const command = [scope, instructions.trim()].filter(Boolean).join(" ")
 
   let session

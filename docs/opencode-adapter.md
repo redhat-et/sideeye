@@ -7,8 +7,10 @@ not use MCP.
 
 There is one user-facing command: `/sideeye` in the OpenCode TUI.
 
-- `/sideeye` opens a scope picker: **Last exchange** or **Whole session**.
-- It then asks for optional extra instructions on top of the rubric.
+- `/sideeye` first asks for optional focus instructions in a text prompt
+  (type, then Enter).
+- It then opens a scope selector: **Last exchange** or **Whole session**
+  (arrow keys, then Enter).
 - It shows the free estimate and asks for confirmation before judging.
 - `/sideeye last [text]`, `/sideeye all [text]`, and `--confirm` are slash
   shortcuts for power users.
