@@ -172,7 +172,7 @@ export function formatEstimate(
     "Side-Eye estimate (no judge call made):",
     `  estimated cost: ${estimate.cost_known === false ? "unknown (provider pricing not configured)" : `$${Number(estimate.estimated_cost_usd ?? 0).toFixed(4)}`}`,
     `  input tokens: ${estimate.input_tokens ?? "unknown"}${estimate.exact === false ? " (estimated)" : ""}`,
-    `  engine: ${estimate.adapter_version ?? "rust"}${estimate.max_tokens ? ` · output cap: ${estimate.max_tokens} tokens` : ""}`,
+    ...(estimate.max_tokens ? [`  output cap: ${estimate.max_tokens} tokens`] : []),
     ...(typeof estimate.model === "string" ? [`  judge: ${estimate.model}`] : []),
     ...(typeof estimate.turns === "number"
       ? [`  scope: ${scopeLabel} · ${estimate.turns} turns · ${estimate.has_diff ? `git diff (${estimate.artifacts} artifact(s), ${estimate.diff_complete ? "complete" : "partial"})` : "narrative only"}`]
