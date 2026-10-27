@@ -51,18 +51,25 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
       {
         title: "Last exchange",
         value: "last",
-        description: "The last request and the assistant work that followed it.",
+        description: "Last request + answer",
       },
       {
         title: "Whole session",
         value: "all",
-        description: "All visible context in this session.",
+        description: "All visible context",
       },
     ],
   })
   if (!scope) return
 
   const command = [scope, instructions.trim()].filter(Boolean).join(" ")
+
+  context.ui.toast.show({
+    title: "Side-Eye",
+    message: "Building packet and checking cost…",
+    variant: "info",
+    duration: 15000,
+  })
 
   let session
   let exported
@@ -96,6 +103,12 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
     return
   }
 
+  context.ui.toast.show({
+    title: "Side-Eye",
+    message: "Judge is reviewing…",
+    variant: "info",
+    duration: 120000,
+  })
   const verdict = await reviewExport(session, exported, context.options, `${command} --confirm`)
   if (failed(verdict)) {
     await context.ui.dialog.alert({title: "Side-Eye", message: verdict})
@@ -139,6 +152,14 @@ export default {
                   await context.ui.dialog.alert({title: "Side-Eye", message: USAGE})
                   return
                 }
+                context.ui.toast.show({
+                  title: "Side-Eye",
+                  message: input.includes("--confirm")
+                    ? "Running the judge…"
+                    : "Building packet and checking cost…",
+                  variant: "info",
+                  duration: 120000,
+                })
                 const result = await reviewExport(
                   await context.client.session.get({sessionID: route.sessionID}),
                   await context.client.session.export({

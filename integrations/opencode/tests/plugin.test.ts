@@ -278,6 +278,7 @@ test("picker selects last exchange, collects instructions, and confirms", async 
     ],
   }
   const synthetic: string[] = []
+  const toasts: string[] = []
   let confirmation = ""
   let exportOptions: Record<string, any> | undefined
   const context = {
@@ -299,7 +300,7 @@ test("picker selects last exchange, collects instructions, and confirms", async 
         },
         alert: async ({message}: {message: string}) => { throw new Error(`unexpected alert: ${message}`) },
       },
-      toast: {show: () => {}},
+      toast: {show: (options: {message: string}) => { toasts.push(options.message) }},
     },
   }
 
@@ -307,6 +308,8 @@ test("picker selects last exchange, collects instructions, and confirms", async 
 
   assert.equal(synthetic.length, 1)
   assert.equal(exportOptions?.sanitize, false)
+  assert.ok(toasts.some((message) => message.includes("Building packet")))
+  assert.ok(toasts.some((message) => message.includes("Judge is reviewing")))
   assert.match(synthetic[0], /picker verdict/)
   assert.match(confirmation, /Side-Eye estimate/)
   assert.match(confirmation, /scope: last exchange/)
