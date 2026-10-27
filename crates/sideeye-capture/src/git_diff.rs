@@ -13,7 +13,7 @@ use crate::CaptureError;
 
 /// Per-artifact character cap. A bigger diff is truncated and marked
 /// incomplete so the judge knows its view is partial.
-pub const MAX_DIFF_CHARS: usize = 200_000;
+pub const MAX_DIFF_CHARS: usize = 400_000;
 
 /// Collect evidence for a session that did not report touched files (for
 /// example a Codex rollout). Discovers changed and untracked paths first.

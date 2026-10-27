@@ -279,12 +279,13 @@ test("picker selects last exchange, collects instructions, and confirms", async 
   }
   const synthetic: string[] = []
   let confirmation = ""
+  let exportOptions: Record<string, any> | undefined
   const context = {
     options: {engine: "rust", rust: [process.execPath, engine], repo},
     client: {
       session: {
         get: async () => ({location: {directory: repo}}),
-        export: async () => data,
+        export: async (options: Record<string, any>) => { exportOptions = options; return data },
         synthetic: async ({text}: {text: string}) => { synthetic.push(text) },
       },
     },
@@ -305,6 +306,7 @@ test("picker selects last exchange, collects instructions, and confirms", async 
   await pickAndReview(context as any, "ses-picker")
 
   assert.equal(synthetic.length, 1)
+  assert.equal(exportOptions?.sanitize, false)
   assert.match(synthetic[0], /picker verdict/)
   assert.match(confirmation, /Side-Eye estimate/)
   assert.match(confirmation, /scope: last exchange/)
