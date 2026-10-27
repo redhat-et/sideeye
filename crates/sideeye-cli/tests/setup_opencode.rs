@@ -91,6 +91,12 @@ fn setup_installs_the_opencode_plugin_and_preserves_jsonc() {
     assert_eq!(plugin["options"]["provider"], "anthropic");
     assert!(data.join("opencode-plugin/src/index.ts").is_file());
     assert!(data.join("opencode-plugin/package.json").is_file());
+    let manifest: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(data.join("opencode-plugin/package.json")).expect("manifest"),
+    )
+    .expect("manifest json");
+    assert_eq!(manifest["type"], "module");
+    assert!(manifest["exports"].is_object());
 
     let cli: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("cli.json")).expect("cli"))

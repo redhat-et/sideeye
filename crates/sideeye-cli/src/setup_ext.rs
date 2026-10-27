@@ -85,6 +85,33 @@ pub(crate) fn install_opencode_plugin(
         }
     }
 
+    // Keep the manifest valid even if an npm/OpenCode reconciliation step
+    // touches it while the plugin is being installed.
+    let package_json = destination.join("package.json");
+    fs::write(
+        &package_json,
+        include_str!("../../../integrations/opencode/package.json"),
+    )
+    .map_err(|error| format!("cannot write {}: {error}", package_json.display()))?;
+    let manifest: Value = serde_json::from_str(
+        &fs::read_to_string(&package_json)
+            .map_err(|error| format!("cannot read {}: {error}", package_json.display()))?,
+    )
+    .map_err(|error| {
+        format!(
+            "invalid plugin manifest {}: {error}",
+            package_json.display()
+        )
+    })?;
+    if manifest.get("type").and_then(Value::as_str) != Some("module")
+        || !manifest.get("exports").is_some_and(Value::is_object)
+    {
+        return Err(format!(
+            "plugin manifest is missing type=module or exports: {}",
+            package_json.display()
+        ));
+    }
+
     let rust = std::env::current_exe()
         .ok()
         .filter(|path| is_rust_sideeye(path))

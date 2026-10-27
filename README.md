@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.8
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.9
 
 ---
 
@@ -111,8 +111,10 @@ picker, then asks for optional extra instructions:
 ```
 
 The scope picker shows the free estimate and asks for confirmation before any
-judge spend. Extra text is reviewer instruction on top of the rubric; only
-`--confirm` is special. The old `sideeye-review` server command and alias were
+judge spend. If the packet is too large for the judge context, Side-Eye shrinks
+the packet automatically using the free token count and retries; the estimate
+says when it was auto-trimmed. Extra text is reviewer instruction on top of the
+rubric; only `--confirm` is special. The old `sideeye-review` server command and alias were
 removed — `/sideeye` is the single user-facing command.
 
 Flow:
@@ -246,7 +248,7 @@ pytest -q
 (cd integrations/opencode && npm ci && npm run typecheck && npm test)
 ```
 
-Current coverage: **169 Python tests**, **72 Rust tests**, **10 OpenCode plugin
+Current coverage: **169 Python tests**, **72 Rust tests**, **11 OpenCode plugin
 tests**.
 
 ---
