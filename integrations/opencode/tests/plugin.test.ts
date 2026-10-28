@@ -280,7 +280,6 @@ test("picker selects last exchange, collects instructions, and confirms", async 
   const synthetic: string[] = []
   const toasts: string[] = []
   const alerts: string[] = []
-  let progressDialogs = 0
   let confirmation = ""
   let exportOptions: Record<string, any> | undefined
   const context = {
@@ -295,16 +294,8 @@ test("picker selects last exchange, collects instructions, and confirms", async 
     ui: {
       dialog: {
         clear: () => {},
-        select: async (options: {options?: Array<{title: string}>}) => {
-          if (options.options?.[0]?.title === "Capturing the session and diff.") {
-            progressDialogs += 1
-            return undefined
-          }
-          if (options.options?.[0]?.title === "The estimate is confirmed.") {
-            progressDialogs += 1
-            return undefined
-          }
-          if ((options as {title?: string}).title === "Label this review") return "skip"
+        select: async (options: {title?: string}) => {
+          if (options.title === "Label this review") return "skip"
           return "last"
         },
         prompt: async () => "focus on tests",
@@ -322,7 +313,8 @@ test("picker selects last exchange, collects instructions, and confirms", async 
 
   assert.equal(synthetic.length, 0)
   assert.equal(exportOptions?.sanitize, false)
-  assert.equal(progressDialogs, 2)
+  assert.ok(alerts.some((message) => message.includes("Preparing estimate")))
+  assert.ok(alerts.some((message) => message.includes("Judge reviewing")))
   assert.ok(alerts.some((message) => message.includes("picker verdict")))
   assert.match(confirmation, /Side-Eye estimate/)
   assert.match(confirmation, /scope: last exchange/)

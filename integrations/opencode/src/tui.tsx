@@ -22,14 +22,9 @@ const USAGE = [
 
 function showProgress(context: Context, title: string, lines: string[]) {
   try {
-    const pending = context.ui.dialog.select({
+    const pending = context.ui.dialog.alert({
       title: "Side-Eye",
-      placeholder: title,
-      options: lines.map((line, index) => ({
-        title: line,
-        value: String(index),
-        disabled: true,
-      })),
+      message: [title, "", ...lines].join("\n"),
     })
     void pending.catch(() => {})
   } catch {
