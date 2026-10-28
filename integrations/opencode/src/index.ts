@@ -75,10 +75,7 @@ async function reviewWithRust(
   const args = [...rust.slice(1)]
   const focus = instructions ? ["--instructions", instructions] : []
   const timeoutMs = Number.isInteger(options.timeoutMs) ? Number(options.timeoutMs) : 300000
-  const outPath =
-    typeof options.out === "string"
-      ? options.out
-      : join(homedir(), ".local", "share", "sideeye", "opencode-verdicts.jsonl")
+  const outPath = verdictLedger(options)
   const touched = touchedFiles.flatMap((file) => ["--touched-file", String(file.path)])
   const packetScope = scope === "last" ? "last-exchange" : "session"
   let maxChars = Number.isInteger(options.maxPacketChars)
@@ -209,6 +206,29 @@ function isContextWindowError(message: string): boolean {
   return /context window is|exceeds the context window|too many input tokens|packet is .*input tokens/i.test(
     message,
   )
+}
+
+export function verdictLedger(options: AnyRecord = {}): string {
+  return typeof options.out === "string"
+    ? options.out
+    : join(homedir(), ".local", "share", "sideeye", "opencode-verdicts.jsonl")
+}
+
+export async function labelLatestVerdict(options: AnyRecord, label: string): Promise<string> {
+  const rust = Array.isArray(options.rust) ? options.rust : [options.rust ?? "sideeye"]
+  const args = [...rust.slice(1)]
+  const ledger = verdictLedger(options)
+  const result = await run(
+    rust[0],
+    [...args, "label", label, "--ledger", ledger],
+    "",
+    process.cwd(),
+    30000,
+  )
+  if (result.code !== 0) {
+    throw new Error(result.stderr || result.stdout || "label command failed")
+  }
+  return ledger
 }
 
 export function formatEstimate(

@@ -84,11 +84,13 @@ check and does not judge. If the context guard rejects the packet, the plugin
 reduces the character budget and retries with the exact free token count before
 showing the estimate. The picker flow shows that estimate in a confirmation
 dialog; the slash flow inserts it with the exact `/sideeye ... --confirm`
-command to run next. The structured verdict is formatted as a Side-Eye card in a synthetic message
-(score, severity, summary, issues/evidence, judge/cost, provenance, saved raw
-record path) and is never routed through the drafting model to generate the
-display. Preparation and judging use a modal step dialog, not a transient
-toast.
+command to run next. The structured verdict opens in a native Side-Eye dialog (score, severity,
+summary, issues/evidence, judge/cost, provenance, saved raw-record path). It is
+not inserted into the model context, so the drafting model does not
+automatically respond to it. The user then labels it Confirmed, False positive,
+Neutral, or skips; `/sideeye show` reopens the latest verdict and
+`/sideeye label ...` labels it later. Preparation and judging use a modal step
+dialog, not a transient toast.
 
 ## Setup
 

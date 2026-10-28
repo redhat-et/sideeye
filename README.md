@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.18
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.19
 
 ---
 
@@ -135,10 +135,13 @@ Flow:
 OpenCode export -> ReviewPacket -> redact -> budget -> estimate -> judge -> verdict
 ```
 
-The verdict is inserted as a formatted Side-Eye card: score, severity,
-summary, issues with evidence, judge/cost, packet/rubric, and the saved raw
-record path. The drafting model does not paraphrase it. Preparation and judging
-use a modal step dialog instead of a transient toast.
+The verdict opens in a native Side-Eye dialog: score, severity, summary,
+issues with evidence, judge/cost, packet/rubric, and the saved raw-record path.
+You then label it **Confirmed**, **False positive**, **Neutral**, or skip. The
+label is stored locally for metrics; the verdict is not inserted into the
+model’s context, so the assistant does not automatically respond to it.
+`/sideeye show` reopens the latest verdict; `/sideeye label confirmed` labels
+it later. Preparation and judging use a modal step dialog, not a toast.
 
 ### Claude Code
 
