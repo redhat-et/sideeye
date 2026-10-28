@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.20
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.21
 
 ---
 
@@ -140,8 +140,11 @@ issues with evidence, judge/cost, packet/rubric, and the saved raw-record path.
 You then label it **Confirmed**, **False positive**, **Neutral**, or skip. The
 label is stored locally for metrics; the verdict is not inserted into the
 model’s context, so the assistant does not automatically respond to it.
-`/sideeye show` reopens the latest verdict; `/sideeye label confirmed` labels
-it later. Preparation and judging use a modal step dialog, not a toast.
+After you label it, a short **Side-Eye review complete** summary is posted to the
+session (score, issue count, label, ledger path), so both you and the assistant
+see that the review was received. The full verdict stays in the dialog and the
+raw ledger; `/sideeye show` reopens it and `/sideeye label confirmed` labels it
+later. Preparation and judging use a modal dialog, not a toast.
 
 ### Claude Code
 
