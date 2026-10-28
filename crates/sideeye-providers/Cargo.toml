@@ -1,6 +1,6 @@
 [package]
 name = "sideeye-providers"
-version = "0.6.19"
+version = "0.6.20"
 edition = "2024"
 license = "Apache-2.0"
 description = "Judge-provider boundary and deterministic test provider for Side-Eye"
