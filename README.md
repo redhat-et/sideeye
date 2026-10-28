@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.17
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.18
 
 ---
 
@@ -135,8 +135,10 @@ Flow:
 OpenCode export -> ReviewPacket -> redact -> budget -> estimate -> judge -> verdict
 ```
 
-The verdict is inserted as a structured record. The drafting model does not
-paraphrase it.
+The verdict is inserted as a formatted Side-Eye card: score, severity,
+summary, issues with evidence, judge/cost, packet/rubric, and the saved raw
+record path. The drafting model does not paraphrase it. Preparation and judging
+use a modal step dialog instead of a transient toast.
 
 ### Claude Code
 
@@ -260,7 +262,7 @@ pytest -q
 (cd integrations/opencode && npm ci && npm run typecheck && npm test)
 ```
 
-Current coverage: **169 Python tests**, **73 Rust tests**, **11 OpenCode plugin
+Current coverage: **169 Python tests**, **73 Rust tests**, **12 OpenCode plugin
 tests**.
 
 ---

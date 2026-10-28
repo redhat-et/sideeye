@@ -149,7 +149,60 @@ async function reviewWithRust(
   }
   const record = lastJsonLine(out.stdout)
   if (!record) return `Side-Eye returned no structured verdict.\n\n${out.stdout}`
-  return `Side-Eye verdict (raw structured record):\n${JSON.stringify(record, null, 2)}`
+  return formatVerdict(record, outPath)
+}
+
+export function formatVerdict(record: AnyRecord, outPath?: string): string {
+  const issues = Array.isArray(record.issues) ? record.issues : []
+  const score = record.score ?? "?"
+  const severity = record.overall_severity ?? "unknown"
+  const correctness = record.correctness ?? "unknown"
+  const claims =
+    record.claims_supported === true
+      ? "supported"
+      : record.claims_supported === false
+        ? "unsupported"
+        : "unknown"
+  const answered =
+    record.answered_what_was_asked === true
+      ? "yes"
+      : record.answered_what_was_asked === false
+        ? "no"
+        : "unknown"
+  const cost =
+    typeof record.cost_usd === "number" ? ` · $${record.cost_usd.toFixed(4)}` : ""
+  const lines = [
+    "## Side-Eye verdict",
+    "",
+    `**Score ${score}/5 · ${severity}**`,
+    "",
+    record.summary ? String(record.summary) : "",
+    "",
+    `Answered: ${answered} · Correctness: ${correctness} · Claims: ${claims}`,
+    `Judge: ${record.judge_model ?? "unknown"}${cost}`,
+    "",
+  ]
+  if (issues.length === 0) {
+    lines.push("No issues found.")
+  } else {
+    lines.push("### Issues", "")
+    issues.forEach((issue: AnyRecord, index: number) => {
+      const issueSeverity = issue?.severity ?? "unknown"
+      const description = issue?.description ?? "No description"
+      lines.push(`${index + 1}. **${issueSeverity}** — ${description}`)
+      if (Array.isArray(issue?.evidence)) {
+        for (const evidence of issue.evidence) {
+          lines.push(`   - Evidence: ${String(evidence)}`)
+        }
+      }
+    })
+  }
+  lines.push(
+    "",
+    `Packet: \`${record.packet_id ?? "unknown"}\` · Rubric: \`${record.rubric_version ?? "unknown"}\``,
+  )
+  if (outPath) lines.push(`Saved: \`${outPath}\``)
+  return lines.join("\n")
 }
 
 function isContextWindowError(message: string): boolean {
@@ -389,6 +442,7 @@ function runProcess(
 export const testHelpers = {
   findRepository,
   formatEstimate,
+  formatVerdict,
   gitMergeBase,
   gitTouchedFiles,
   parseCommand,

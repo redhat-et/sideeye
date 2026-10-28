@@ -104,7 +104,8 @@ plugin options, free route verification, and noninteractive failure.
 - [x] Rust engine selected by setup.
 - [x] Diff base, redaction, budgeting, context guard, self-grading guard.
 - [x] Plugin install and JSONC/profile detection.
-- [x] Raw verdict inserted without paraphrase and persisted outside context.
+- [x] Raw verdict persisted outside context; the TUI shows a formatted verdict
+      card instead of raw JSON.
 - [x] Show packet scope and judge model in the estimate.
 - [x] Manifest artifact for reviewed files.
 - [x] Hard timeout on the plugin's engine/judge call.
@@ -116,6 +117,7 @@ plugin options, free route verification, and noninteractive failure.
 - [x] Give code evidence 60% of the packet budget (cap 300k) and raise the diff
       cap to 400k.
 - [x] Guided setup wizard and free `count_tokens` verification.
+- [x] Modal step progress for preparation and judging (native dialog API).
 - [x] `sideeye --help`, `sideeye setup --help`, and `sideeye doctor --help`
       with examples.
 - [x] Manual fake-judge emulation with the installed plugin and installed Rust
@@ -183,11 +185,11 @@ all three harnesses pass end to end; the local metrics ledger and stats work.
 
 ## Test coverage target
 
-Current (0.6.17 development):
+Current (0.6.18 development):
 
 - Python: 169 tests.
 - Rust: 73 tests.
-- OpenCode plugin: 11 tests.
+- OpenCode plugin: 12 tests.
 
 The Rust suite must reach behavioral parity, not merely the same count. Track
 coverage by surface:

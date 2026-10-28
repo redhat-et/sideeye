@@ -13,6 +13,38 @@ const USAGE = [
   "reviewer instruction on top of the rubric.",
 ].join("\n")
 
+function showProgress(context: Context, title: string, lines: string[]) {
+  try {
+    const pending = context.ui.dialog.select({
+      title: "Side-Eye",
+      placeholder: title,
+      options: lines.map((line, index) => ({
+        title: line,
+        value: String(index),
+        disabled: true,
+      })),
+    })
+    void pending.catch(() => {})
+  } catch {
+    context.ui.toast.show({
+      title: "Side-Eye",
+      message: title,
+      variant: "info",
+      duration: 15000,
+    })
+    return {close: () => {}}
+  }
+  return {
+    close() {
+      try {
+        context.ui.dialog.clear()
+      } catch {
+        // The host may have closed the dialog already.
+      }
+    },
+  }
+}
+
 function failed(result: string): boolean {
   return [
     "Side-Eye packet build failed",
@@ -64,18 +96,17 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
 
   const command = [scope, instructions.trim()].filter(Boolean).join(" ")
 
-  context.ui.toast.show({
-    title: "Side-Eye",
-    message: "Preparing your estimate…",
-    variant: "info",
-    duration: 15000,
-  })
+  const preparing = showProgress(context, "Preparing estimate", [
+    "Capturing the session and diff.",
+    "Checking the judge cost.",
+  ])
 
   let session
   let exported
   try {
     ;({session, exported} = await load(context, sessionID))
   } catch (error) {
+    preparing.close()
     await context.ui.dialog.alert({
       title: "Side-Eye",
       message: `The session could not be loaded: ${error instanceof Error ? error.message : String(error)}`,
@@ -84,6 +115,7 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
   }
 
   const estimate = await reviewExport(session, exported, context.options, command, false)
+  preparing.close()
   if (failed(estimate)) {
     await context.ui.dialog.alert({title: "Side-Eye", message: estimate})
     return
@@ -103,13 +135,12 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
     return
   }
 
-  context.ui.toast.show({
-    title: "Side-Eye",
-    message: "The judge is reviewing your session…",
-    variant: "info",
-    duration: 120000,
-  })
+  const judging = showProgress(context, "Judge reviewing", [
+    "The estimate is confirmed.",
+    "Waiting for the structured verdict.",
+  ])
   const verdict = await reviewExport(session, exported, context.options, `${command} --confirm`)
+  judging.close()
   if (failed(verdict)) {
     await context.ui.dialog.alert({title: "Side-Eye", message: verdict})
     return
@@ -152,14 +183,13 @@ export default {
                   await context.ui.dialog.alert({title: "Side-Eye", message: USAGE})
                   return
                 }
-                context.ui.toast.show({
-                  title: "Side-Eye",
-                  message: input.includes("--confirm")
-                    ? "The judge is reviewing your session…"
-                    : "Preparing your estimate…",
-                  variant: "info",
-                  duration: 120000,
-                })
+                const progress = showProgress(
+                  context,
+                  input.includes("--confirm") ? "Judge reviewing" : "Preparing estimate",
+                  input.includes("--confirm")
+                    ? ["The estimate is confirmed.", "Waiting for the structured verdict."]
+                    : ["Capturing the session and diff.", "Checking the judge cost."],
+                )
                 const result = await reviewExport(
                   await context.client.session.get({sessionID: route.sessionID}),
                   await context.client.session.export({
@@ -169,6 +199,7 @@ export default {
                   context.options,
                   input,
                 )
+                progress.close()
                 await context.client.session.synthetic({sessionID: route.sessionID, text: result})
               },
             },
