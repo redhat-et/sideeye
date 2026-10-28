@@ -279,6 +279,7 @@ test("picker selects last exchange, collects instructions, and confirms", async 
   }
   const synthetic: string[] = []
   const toasts: string[] = []
+  const alerts: string[] = []
   let progressDialogs = 0
   let confirmation = ""
   let exportOptions: Record<string, any> | undefined
@@ -303,6 +304,7 @@ test("picker selects last exchange, collects instructions, and confirms", async 
             progressDialogs += 1
             return undefined
           }
+          if ((options as {title?: string}).title === "Label this review") return "skip"
           return "last"
         },
         prompt: async () => "focus on tests",
@@ -310,7 +312,7 @@ test("picker selects last exchange, collects instructions, and confirms", async 
           confirmation = options.message
           return true
         },
-        alert: async ({message}: {message: string}) => { throw new Error(`unexpected alert: ${message}`) },
+        alert: async ({message}: {message: string}) => { alerts.push(message) },
       },
       toast: {show: (options: {message: string}) => { toasts.push(options.message) }},
     },
@@ -318,10 +320,10 @@ test("picker selects last exchange, collects instructions, and confirms", async 
 
   await pickAndReview(context as any, "ses-picker")
 
-  assert.equal(synthetic.length, 1)
+  assert.equal(synthetic.length, 0)
   assert.equal(exportOptions?.sanitize, false)
   assert.equal(progressDialogs, 2)
-  assert.match(synthetic[0], /picker verdict/)
+  assert.ok(alerts.some((message) => message.includes("picker verdict")))
   assert.match(confirmation, /Side-Eye estimate/)
   assert.match(confirmation, /scope: last exchange/)
   const lines = readFileSync(argvLog, "utf8").split("\n")

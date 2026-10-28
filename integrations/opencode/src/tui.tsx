@@ -1,5 +1,12 @@
+import { existsSync, readFileSync } from "node:fs"
 import type { Context } from "@opencode/plugin/tui/context"
-import { reviewExport, type ReviewScope } from "./index.js"
+import {
+  formatVerdict,
+  labelLatestVerdict,
+  reviewExport,
+  verdictLedger,
+  type ReviewScope,
+} from "./index.js"
 
 const USAGE = [
   "Side-Eye review",
@@ -42,6 +49,87 @@ function showProgress(context: Context, title: string, lines: string[]) {
         // The host may have closed the dialog already.
       }
     },
+  }
+}
+
+async function showVerdict(context: Context, verdict: string): Promise<void> {
+  await context.ui.dialog.alert({title: "Side-Eye verdict", message: verdict})
+  const label = await context.ui.dialog.select<"confirmed" | "false-positive" | "neutral" | "skip">({
+    title: "Label this review",
+    placeholder: "Your label is stored locally for judge-success metrics.",
+    options: [
+      {title: "Confirmed", value: "confirmed", description: "The finding is valid"},
+      {title: "False positive", value: "false-positive", description: "Not a real issue"},
+      {title: "Neutral", value: "neutral", description: "Unsure"},
+      {title: "Skip", value: "skip", description: "Do not record a label"},
+    ],
+  })
+  if (!label || label === "skip") return
+  try {
+    await labelLatestVerdict(context.options, label)
+    context.ui.toast.show({
+      title: "Side-Eye",
+      message: `Label saved: ${label}`,
+      variant: "success",
+    })
+  } catch (error) {
+    await context.ui.dialog.alert({
+      title: "Side-Eye label failed",
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+async function showLastVerdict(context: Context): Promise<void> {
+  const path = verdictLedger(context.options)
+  if (!existsSync(path)) {
+    await context.ui.dialog.alert({
+      title: "Side-Eye",
+      message: "No stored verdicts yet. Run /sideeye first.",
+    })
+    return
+  }
+  const lines = readFileSync(path, "utf8").trim().split("\n").filter(Boolean)
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try {
+      const record = JSON.parse(lines[index])
+      if (record?.verdict) {
+        await context.ui.dialog.alert({
+          title: "Side-Eye verdict",
+          message: formatVerdict(record.verdict, path),
+        })
+        return
+      }
+    } catch {
+      // Skip malformed ledger lines.
+    }
+  }
+  await context.ui.dialog.alert({
+    title: "Side-Eye",
+    message: "No readable verdict found in the local ledger.",
+  })
+}
+
+async function labelCurrent(context: Context, label: string): Promise<void> {
+  if (!["confirmed", "false-positive", "neutral"].includes(label)) {
+    await context.ui.dialog.alert({
+      title: "Side-Eye",
+      message: "Use /sideeye label confirmed, /sideeye label false-positive, or /sideeye label neutral.",
+    })
+    return
+  }
+  try {
+    const ledger = await labelLatestVerdict(context.options, label)
+    context.ui.toast.show({
+      title: "Side-Eye",
+      message: `Label saved: ${label} · ${ledger}`,
+      variant: "success",
+    })
+  } catch (error) {
+    await context.ui.dialog.alert({
+      title: "Side-Eye label failed",
+      message: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 
@@ -145,7 +233,7 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
     await context.ui.dialog.alert({title: "Side-Eye", message: verdict})
     return
   }
-  await context.client.session.synthetic({sessionID, text: verdict})
+  await showVerdict(context, verdict)
 }
 
 export default {
@@ -179,7 +267,16 @@ export default {
                   await pickAndReview(context, route.sessionID)
                   return
                 }
-                if (/^(--help|help)$/i.test(input.trim())) {
+                const trimmed = input.trim()
+                if (/^show$/i.test(trimmed)) {
+                  await showLastVerdict(context)
+                  return
+                }
+                if (/^label\b/i.test(trimmed)) {
+                  await labelCurrent(context, trimmed.split(/\s+/, 2)[1]?.toLowerCase() ?? "")
+                  return
+                }
+                if (/^(--help|help)$/i.test(trimmed)) {
                   await context.ui.dialog.alert({title: "Side-Eye", message: USAGE})
                   return
                 }
@@ -200,7 +297,11 @@ export default {
                   input,
                 )
                 progress.close()
-                await context.client.session.synthetic({sessionID: route.sessionID, text: result})
+                if (input.includes("--confirm")) {
+                  await showVerdict(context, result)
+                } else {
+                  await context.client.session.synthetic({sessionID: route.sessionID, text: result})
+                }
               },
             },
           ],

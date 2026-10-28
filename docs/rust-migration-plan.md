@@ -104,8 +104,9 @@ plugin options, free route verification, and noninteractive failure.
 - [x] Rust engine selected by setup.
 - [x] Diff base, redaction, budgeting, context guard, self-grading guard.
 - [x] Plugin install and JSONC/profile detection.
-- [x] Raw verdict persisted outside context; the TUI shows a formatted verdict
-      card instead of raw JSON.
+- [x] Raw verdict persisted outside context; the TUI shows a native verdict
+      dialog with Confirmed / False positive / Neutral / Skip labels, not raw JSON
+      and not a model turn.
 - [x] Show packet scope and judge model in the estimate.
 - [x] Manifest artifact for reviewed files.
 - [x] Hard timeout on the plugin's engine/judge call.
@@ -118,6 +119,7 @@ plugin options, free route verification, and noninteractive failure.
       cap to 400k.
 - [x] Guided setup wizard and free `count_tokens` verification.
 - [x] Modal step progress for preparation and judging (native dialog API).
+- [x] `/sideeye show` and `/sideeye label ...` for later review/labeling.
 - [x] `sideeye --help`, `sideeye setup --help`, and `sideeye doctor --help`
       with examples.
 - [x] Manual fake-judge emulation with the installed plugin and installed Rust
@@ -185,7 +187,7 @@ all three harnesses pass end to end; the local metrics ledger and stats work.
 
 ## Test coverage target
 
-Current (0.6.18 development):
+Current (0.6.19 development):
 
 - Python: 169 tests.
 - Rust: 73 tests.
