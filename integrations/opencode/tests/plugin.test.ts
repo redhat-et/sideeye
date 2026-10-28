@@ -308,8 +308,8 @@ test("picker selects last exchange, collects instructions, and confirms", async 
 
   assert.equal(synthetic.length, 1)
   assert.equal(exportOptions?.sanitize, false)
-  assert.ok(toasts.some((message) => message.includes("Building packet")))
-  assert.ok(toasts.some((message) => message.includes("Judge is reviewing")))
+  assert.ok(toasts.some((message) => message.includes("Preparing your estimate")))
+  assert.ok(toasts.some((message) => message.includes("The judge is reviewing")))
   assert.match(synthetic[0], /picker verdict/)
   assert.match(confirmation, /Side-Eye estimate/)
   assert.match(confirmation, /scope: last exchange/)

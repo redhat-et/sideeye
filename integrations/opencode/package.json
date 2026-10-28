@@ -1,6 +1,6 @@
 {
   "name": "@redhat-et/sideeye-opencode",
-  "version": "0.6.16",
+  "version": "0.6.17",
   "type": "module",
   "files": [
     "dist",
