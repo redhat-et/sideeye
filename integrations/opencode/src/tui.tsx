@@ -47,7 +47,11 @@ function showProgress(context: Context, title: string, lines: string[]) {
   }
 }
 
-async function showVerdict(context: Context, verdict: string): Promise<void> {
+async function showVerdict(
+  context: Context,
+  verdict: string,
+): Promise<{label: string; ledger: string}> {
+  const ledger = verdictLedger(context.options)
   await context.ui.dialog.alert({title: "Side-Eye verdict", message: verdict})
   const label = await context.ui.dialog.select<"confirmed" | "false-positive" | "neutral" | "skip">({
     title: "Label this review",
@@ -59,7 +63,7 @@ async function showVerdict(context: Context, verdict: string): Promise<void> {
       {title: "Skip", value: "skip", description: "Do not record a label"},
     ],
   })
-  if (!label || label === "skip") return
+  if (!label || label === "skip") return {label: "not set", ledger}
   try {
     await labelLatestVerdict(context.options, label)
     context.ui.toast.show({
@@ -67,12 +71,31 @@ async function showVerdict(context: Context, verdict: string): Promise<void> {
       message: `Label saved: ${label}`,
       variant: "success",
     })
+    return {label, ledger}
   } catch (error) {
     await context.ui.dialog.alert({
       title: "Side-Eye label failed",
       message: error instanceof Error ? error.message : String(error),
     })
+    return {label: "save failed", ledger}
   }
+}
+
+function reviewCompletion(
+  verdict: string,
+  label: string,
+  ledger: string,
+): string {
+  const scoreLine = verdict.match(/\*\*(Score [^*]+)\*\*/)?.[1] ?? "Review complete"
+  const issueCount = (verdict.match(/^\d+\. \*\*/gm) ?? []).length
+  return [
+    "Side-Eye review complete",
+    "",
+    `**${scoreLine}**`,
+    `Issues: ${issueCount === 0 ? "none" : issueCount}`,
+    `Label: ${label}`,
+    `Full verdict: \`/sideeye show\` · Raw: \`${ledger}\``,
+  ].join("\n")
 }
 
 async function showLastVerdict(context: Context): Promise<void> {
@@ -228,7 +251,11 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
     await context.ui.dialog.alert({title: "Side-Eye", message: verdict})
     return
   }
-  await showVerdict(context, verdict)
+  const completion = await showVerdict(context, verdict)
+  await context.client.session.synthetic({
+    sessionID,
+    text: reviewCompletion(verdict, completion.label, completion.ledger),
+  })
 }
 
 export default {
@@ -293,7 +320,11 @@ export default {
                 )
                 progress.close()
                 if (input.includes("--confirm")) {
-                  await showVerdict(context, result)
+                  const completion = await showVerdict(context, result)
+                  await context.client.session.synthetic({
+                    sessionID: route.sessionID,
+                    text: reviewCompletion(result, completion.label, completion.ledger),
+                  })
                 } else {
                   await context.client.session.synthetic({sessionID: route.sessionID, text: result})
                 }

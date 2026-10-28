@@ -311,11 +311,13 @@ test("picker selects last exchange, collects instructions, and confirms", async 
 
   await pickAndReview(context as any, "ses-picker")
 
-  assert.equal(synthetic.length, 0)
+  assert.equal(synthetic.length, 1)
   assert.equal(exportOptions?.sanitize, false)
   assert.ok(alerts.some((message) => message.includes("Preparing estimate")))
   assert.ok(alerts.some((message) => message.includes("Judge reviewing")))
   assert.ok(alerts.some((message) => message.includes("picker verdict")))
+  assert.match(synthetic[0], /Side-Eye review complete/)
+  assert.match(synthetic[0], /Label: not set/)
   assert.match(confirmation, /Side-Eye estimate/)
   assert.match(confirmation, /scope: last exchange/)
   const lines = readFileSync(argvLog, "utf8").split("\n")

@@ -89,8 +89,10 @@ summary, issues/evidence, judge/cost, provenance, saved raw-record path). It is
 not inserted into the model context, so the drafting model does not
 automatically respond to it. The user then labels it Confirmed, False positive,
 Neutral, or skips; `/sideeye show` reopens the latest verdict and
-`/sideeye label ...` labels it later. Preparation and judging use a modal step
-dialog, not a transient toast.
+`/sideeye label ...` labels it later. A short review-complete summary is posted
+to the session after labeling so the user and the assistant see the result; the
+full verdict stays in the dialog and raw ledger. Preparation and judging use a
+modal dialog, not a transient toast.
 
 ## Setup
 
