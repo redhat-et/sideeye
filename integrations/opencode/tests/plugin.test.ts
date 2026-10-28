@@ -279,6 +279,7 @@ test("picker selects last exchange, collects instructions, and confirms", async 
   }
   const synthetic: string[] = []
   const toasts: string[] = []
+  let progressDialogs = 0
   let confirmation = ""
   let exportOptions: Record<string, any> | undefined
   const context = {
@@ -292,7 +293,18 @@ test("picker selects last exchange, collects instructions, and confirms", async 
     },
     ui: {
       dialog: {
-        select: async () => "last",
+        clear: () => {},
+        select: async (options: {options?: Array<{title: string}>}) => {
+          if (options.options?.[0]?.title === "Capturing the session and diff.") {
+            progressDialogs += 1
+            return undefined
+          }
+          if (options.options?.[0]?.title === "The estimate is confirmed.") {
+            progressDialogs += 1
+            return undefined
+          }
+          return "last"
+        },
         prompt: async () => "focus on tests",
         confirm: async (options: {message: string}) => {
           confirmation = options.message
@@ -308,8 +320,7 @@ test("picker selects last exchange, collects instructions, and confirms", async 
 
   assert.equal(synthetic.length, 1)
   assert.equal(exportOptions?.sanitize, false)
-  assert.ok(toasts.some((message) => message.includes("Preparing your estimate")))
-  assert.ok(toasts.some((message) => message.includes("The judge is reviewing")))
+  assert.equal(progressDialogs, 2)
   assert.match(synthetic[0], /picker verdict/)
   assert.match(confirmation, /Side-Eye estimate/)
   assert.match(confirmation, /scope: last exchange/)
@@ -394,4 +405,37 @@ test("rust engine call times out instead of hanging", async () => {
     {engine: "rust", rust: [process.execPath, engine], timeoutMs: 100},
   )
   assert.match(result, /timed out after 100ms/i)
+})
+
+test("formats the verdict as a readable card", () => {
+  const text = testHelpers.formatVerdict(
+    {
+      schema_version: "sideeye.verdict.v1",
+      packet_id: "opencode-ses-test-last-exchange",
+      rubric_version: "rubric_session_v2",
+      score: 4,
+      overall_severity: "minor",
+      correctness: "partially_correct",
+      claims_supported: true,
+      answered_what_was_asked: true,
+      summary: "Mostly correct with one gap.",
+      issues: [
+        {
+          description: "The edge case is not covered.",
+          severity: "minor",
+          evidence: ["src/parser.rs:42"],
+        },
+      ],
+      judge_model: "claude-opus-4-8",
+      cost_usd: 0.0123,
+    },
+    "/tmp/verdicts.jsonl",
+  )
+  assert.match(text, /^## Side-Eye verdict/m)
+  assert.match(text, /\*\*Score 4\/5 · minor\*\*/)
+  assert.match(text, /Mostly correct with one gap/)
+  assert.match(text, /### Issues/)
+  assert.match(text, /Evidence: src\/parser\.rs:42/)
+  assert.match(text, /Saved: `\/tmp\/verdicts\.jsonl`/)
+  assert.doesNotMatch(text, /"schema_version"/)
 })
