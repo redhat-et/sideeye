@@ -66,7 +66,7 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
 
   context.ui.toast.show({
     title: "Side-Eye",
-    message: "Building packet and checking cost…",
+    message: "Preparing your estimate…",
     variant: "info",
     duration: 15000,
   })
@@ -105,7 +105,7 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
 
   context.ui.toast.show({
     title: "Side-Eye",
-    message: "Judge is reviewing…",
+    message: "The judge is reviewing your session…",
     variant: "info",
     duration: 120000,
   })
@@ -155,8 +155,8 @@ export default {
                 context.ui.toast.show({
                   title: "Side-Eye",
                   message: input.includes("--confirm")
-                    ? "Running the judge…"
-                    : "Building packet and checking cost…",
+                    ? "The judge is reviewing your session…"
+                    : "Preparing your estimate…",
                   variant: "info",
                   duration: 120000,
                 })
