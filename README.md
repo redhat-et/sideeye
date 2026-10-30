@@ -14,7 +14,7 @@ grade itself.
 - Self-grading, secret, context, and budget guards
 
 **Demo:** https://redhat-et.github.io/sideeye/  
-**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.21
+**Latest release:** https://github.com/redhat-et/sideeye/releases/tag/v0.6.22
 
 ---
 
