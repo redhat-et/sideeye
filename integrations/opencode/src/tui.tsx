@@ -3,7 +3,7 @@ import type { Context } from "@opencode/plugin/tui/context"
 import {
   formatVerdict,
   labelLatestVerdict,
-  reviewExport,
+  reviewExportResult,
   verdictLedger,
   type ReviewScope,
 } from "./index.js"
@@ -82,20 +82,33 @@ async function showVerdict(
 }
 
 function reviewCompletion(
-  verdict: string,
+  record: Record<string, any> | undefined,
   label: string,
   ledger: string,
 ): string {
-  const scoreLine = verdict.match(/\*\*(Score [^*]+)\*\*/)?.[1] ?? "Review complete"
-  const issueCount = (verdict.match(/^\d+\. \*\*/gm) ?? []).length
+  const score = record?.score ?? "?"
+  const severity = record?.overall_severity ?? "unknown"
+  const issueCount = Array.isArray(record?.issues) ? record.issues.length : 0
   return [
     "Side-Eye review complete",
     "",
-    `**${scoreLine}**`,
-    `Issues: ${issueCount === 0 ? "none" : issueCount}`,
+    `**Score ${score}/5 · ${severity}**`,
+    `Issues: ${issueCount}`,
     `Label: ${label}`,
     `Full verdict: \`/sideeye show\` · Raw: \`${ledger}\``,
   ].join("\n")
+}
+
+async function completeReview(
+  context: Context,
+  sessionID: string,
+  result: {text: string; verdict?: Record<string, any>},
+): Promise<void> {
+  const completion = await showVerdict(context, result.text)
+  await context.client.session.synthetic({
+    sessionID,
+    text: reviewCompletion(result.verdict, completion.label, completion.ledger),
+  })
 }
 
 async function showLastVerdict(context: Context): Promise<void> {
@@ -220,7 +233,14 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
     return
   }
 
-  const estimate = await reviewExport(session, exported, context.options, command, false)
+  const estimateResult = await reviewExportResult(
+    session,
+    exported,
+    context.options,
+    command,
+    false,
+  )
+  const estimate = estimateResult.text
   preparing.close()
   if (failed(estimate)) {
     await context.ui.dialog.alert({title: "Side-Eye", message: estimate})
@@ -245,17 +265,19 @@ export async function pickAndReview(context: Context, sessionID: string): Promis
     "The estimate is confirmed.",
     "Waiting for the structured verdict.",
   ])
-  const verdict = await reviewExport(session, exported, context.options, `${command} --confirm`)
+  const verdictResult = await reviewExportResult(
+    session,
+    exported,
+    context.options,
+    `${command} --confirm`,
+  )
+  const verdict = verdictResult.text
   judging.close()
   if (failed(verdict)) {
     await context.ui.dialog.alert({title: "Side-Eye", message: verdict})
     return
   }
-  const completion = await showVerdict(context, verdict)
-  await context.client.session.synthetic({
-    sessionID,
-    text: reviewCompletion(verdict, completion.label, completion.ledger),
-  })
+  await completeReview(context, sessionID, verdictResult)
 }
 
 export default {
@@ -309,7 +331,7 @@ export default {
                     ? ["The estimate is confirmed.", "Waiting for the structured verdict."]
                     : ["Capturing the session and diff.", "Checking the judge cost."],
                 )
-                const result = await reviewExport(
+                const result = await reviewExportResult(
                   await context.client.session.get({sessionID: route.sessionID}),
                   await context.client.session.export({
                     sessionID: route.sessionID,
@@ -320,13 +342,9 @@ export default {
                 )
                 progress.close()
                 if (input.includes("--confirm")) {
-                  const completion = await showVerdict(context, result)
-                  await context.client.session.synthetic({
-                    sessionID: route.sessionID,
-                    text: reviewCompletion(result, completion.label, completion.ledger),
-                  })
+                  await completeReview(context, route.sessionID, result)
                 } else {
-                  await context.client.session.synthetic({sessionID: route.sessionID, text: result})
+                  await context.client.session.synthetic({sessionID: route.sessionID, text: result.text})
                 }
               },
             },

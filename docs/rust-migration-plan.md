@@ -121,7 +121,8 @@ plugin options, free route verification, and noninteractive failure.
 - [x] Modal step progress for preparation and judging (native dialog API).
 - [x] `/sideeye show` and `/sideeye label ...` for later review/labeling.
 - [x] Post a short review-complete summary after labeling so the result is
-      visible in the session.
+      visible in the session. The summary is built from the structured verdict
+      record, not regex-parsed display text.
 - [x] `sideeye --help`, `sideeye setup --help`, and `sideeye doctor --help`
       with examples.
 - [x] Manual fake-judge emulation with the installed plugin and installed Rust
@@ -189,7 +190,7 @@ all three harnesses pass end to end; the local metrics ledger and stats work.
 
 ## Test coverage target
 
-Current (0.6.21 development):
+Current (0.6.22 development):
 
 - Python: 169 tests.
 - Rust: 73 tests.

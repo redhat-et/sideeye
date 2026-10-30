@@ -435,3 +435,34 @@ test("formats the verdict as a readable card", () => {
   assert.match(text, /Saved: `\/tmp\/verdicts\.jsonl`/)
   assert.doesNotMatch(text, /"schema_version"/)
 })
+
+test("review result carries the structured verdict for summaries", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "sideeye-opencode-result-"))
+  const repo = join(workspace, "project")
+  mkdirSync(repo)
+  git(repo, ["init", "-q"])
+  git(repo, ["config", "user.email", "test@example.invalid"])
+  git(repo, ["config", "user.name", "Side-Eye Test"])
+  const file = join(repo, "answer.txt")
+  writeFile(file, "base\n")
+  git(repo, ["add", "answer.txt"])
+  git(repo, ["commit", "-qm", "base"])
+  writeFile(file, "after\n")
+  const engine = join(workspace, "fake-rust.mjs")
+  writeFile(engine, [
+    "let input='';",
+    "process.stdin.on('data', (chunk) => input += chunk);",
+    "process.stdin.on('end', () => {",
+    "  const command = process.argv[2];",
+    "  const payload = command === 'packet' ? {ok: true} : command === 'estimate' ? {input_tokens: 1, estimated_cost_usd: 0, turns: 1, artifacts: 1, has_diff: true, diff_complete: true} : {score: 3, overall_severity: 'major', issues: [{description: 'x', severity: 'major'}], summary: 'structured result'};",
+    "  process.stdout.write(JSON.stringify(payload) + '\\n');",
+    "});",
+  ].join("\n"))
+  const session = {location: {directory: repo}}
+  const data = {info: {id: "ses-result", model: {providerID: "openai", id: "gpt-test"}}, messages: [{type: "user", text: "task"}]}
+  const options = {engine: "rust", rust: [process.execPath, engine]}
+  const result = await testHelpers.reviewExportResult(session as any, data as any, options as any, "--confirm")
+  assert.equal(result.verdict?.score, 3)
+  assert.equal(result.verdict?.overall_severity, "major")
+  assert.match(result.text, /Score 3\/5 · major/)
+})

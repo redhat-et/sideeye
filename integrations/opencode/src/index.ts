@@ -16,6 +16,8 @@ export default {
 }
 
 /** Run the bridge against a full sanitized OpenCode export. */
+export type ReviewOutput = {text: string; verdict?: AnyRecord}
+
 export async function reviewExport(
   session: AnyRecord,
   data: AnyRecord,
@@ -23,6 +25,16 @@ export async function reviewExport(
   commandText = "",
   estimateHint = true,
 ): Promise<string> {
+  return (await reviewExportResult(session, data, options, commandText, estimateHint)).text
+}
+
+export async function reviewExportResult(
+  session: AnyRecord,
+  data: AnyRecord,
+  options: AnyRecord = {},
+  commandText = "",
+  estimateHint = true,
+): Promise<ReviewOutput> {
   try {
     const repo = await findRepository(session, data, options.repo as string | undefined)
     const diffBase = await gitMergeBase(repo)
@@ -42,14 +54,14 @@ export async function reviewExport(
       )
     }
     if (scope === "last") {
-      return "Last-exchange scope requires the Rust engine (`engine: rust`). Re-run setup with `sideeye` on PATH."
+      return {text: "Last-exchange scope requires the Rust engine (`engine: rust`). Re-run setup with `sideeye` on PATH."}
     }
     if (instructions) {
-      return "Focus instructions require the Rust engine (`engine: rust`). Re-run setup with `sideeye` on PATH."
+      return {text: "Focus instructions require the Rust engine (`engine: rust`). Re-run setup with `sideeye` on PATH."}
     }
-    return "Side-Eye requires the Rust engine. Run `sideeye setup` and restart OpenCode."
+    return {text: "Side-Eye requires the Rust engine. Run `sideeye setup` and restart OpenCode."}
   } catch (error) {
-    return `Side-Eye review could not start: ${error instanceof Error ? error.message : String(error)}`
+    return {text: `Side-Eye review could not start: ${error instanceof Error ? error.message : String(error)}`}
   }
 }
 
@@ -63,7 +75,7 @@ async function reviewWithRust(
   instructions: string,
   scope: ReviewScope | undefined,
   estimateHint: boolean,
-): Promise<string> {
+): Promise<ReviewOutput> {
   const rust = Array.isArray(options.rust) ? options.rust : [options.rust ?? "sideeye"]
   const provider = typeof options.provider === "string" ? options.provider : "anthropic"
   const model = typeof options.model === "string" ? options.model : "claude-opus-4-8"
@@ -96,10 +108,10 @@ async function reviewWithRust(
       "--max-packet-chars", String(maxChars), ...touched,
     ], JSON.stringify(data), repo, timeoutMs)
     if (packetRun.code !== 0) {
-      return `Side-Eye packet build failed before producing a verdict.\n\n${packetRun.stderr || packetRun.stdout}`
+      return {text: `Side-Eye packet build failed before producing a verdict.\n\n${packetRun.stderr || packetRun.stdout}`}
     }
     const candidate = lastJsonObject(packetRun.stdout)
-    if (!candidate) return `Side-Eye returned no packet.\n\n${packetRun.stdout}`
+    if (!candidate) return {text: `Side-Eye returned no packet.\n\n${packetRun.stdout}`}
     const candidateJson = JSON.stringify(candidate)
     const estimate = await run(rust[0], [
       ...args, "estimate", "-", "--provider", provider,
@@ -107,7 +119,7 @@ async function reviewWithRust(
     ], candidateJson, repo, timeoutMs)
     if (estimate.code === 0) {
       const record = lastJsonObject(estimate.stdout)
-      if (!record) return `Side-Eye returned no structured estimate.\n\n${estimate.stdout}`
+      if (!record) return {text: `Side-Eye returned no structured estimate.\n\n${estimate.stdout}`}
       packet = candidate
       packetJson = candidateJson
       estimateRecord = record
@@ -115,7 +127,7 @@ async function reviewWithRust(
     }
     lastError = estimate.stderr || estimate.stdout
     if (!isContextWindowError(lastError)) {
-      return `Side-Eye estimate failed before producing a verdict.\n\n${lastError}`
+      return {text: `Side-Eye estimate failed before producing a verdict.\n\n${lastError}`}
     }
     const next = Math.max(20_000, Math.floor(maxChars * 0.6))
     if (next >= maxChars) break
@@ -124,16 +136,18 @@ async function reviewWithRust(
   }
 
   if (!packet || !estimateRecord) {
-    return [
-      `Side-Eye could not fit this review into ${model}'s context window even after trimming.`,
-      "",
-      "Try `/sideeye last` for a smaller scope, or choose a larger-context judge in setup.",
-      "",
-      lastError,
-    ].join("\n")
+    return {
+      text: [
+        `Side-Eye could not fit this review into ${model}'s context window even after trimming.`,
+        "",
+        "Try `/sideeye last` for a smaller scope, or choose a larger-context judge in setup.",
+        "",
+        lastError,
+      ].join("\n"),
+    }
   }
   if (!confirm) {
-    return formatEstimate(estimateRecord, instructions, scope, estimateHint, autoTrimmed)
+    return {text: formatEstimate(estimateRecord, instructions, scope, estimateHint, autoTrimmed)}
   }
 
   const out = await run(rust[0], [
@@ -142,11 +156,11 @@ async function reviewWithRust(
     "--out", outPath,
   ], packetJson, repo, timeoutMs)
   if (out.code !== 0) {
-    return `Side-Eye review failed before producing a verdict.\n\n${out.stderr || out.stdout}`
+    return {text: `Side-Eye review failed before producing a verdict.\n\n${out.stderr || out.stdout}`}
   }
   const record = lastJsonLine(out.stdout)
-  if (!record) return `Side-Eye returned no structured verdict.\n\n${out.stdout}`
-  return formatVerdict(record, outPath)
+  if (!record) return {text: `Side-Eye returned no structured verdict.\n\n${out.stdout}`}
+  return {text: formatVerdict(record, outPath), verdict: record}
 }
 
 export function formatVerdict(record: AnyRecord, outPath?: string): string {
@@ -467,5 +481,6 @@ export const testHelpers = {
   gitTouchedFiles,
   parseCommand,
   reviewExport,
+  reviewExportResult,
   run,
 }
